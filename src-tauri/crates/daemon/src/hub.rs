@@ -18,32 +18,23 @@ use super::process::Proc;
 use super::settings::Settings;
 use super::{Exit, report};
 use crate::pty::{self, Size};
+use crate::session::TabEntry;
 
 const TAB_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
 pub(super) struct Tab {
-    pub(super) id: String,
+    pub(super) entry: TabEntry,
     pub(super) pinned: bool,
-    pub(super) restore: Option<String>,
-    pub(super) cwd: Option<PathBuf>,
     pub(super) output: Arc<Mutex<Output>>,
     pub(super) proc: Option<Proc>,
     pub(super) generation: u64,
 }
 
 impl Tab {
-    pub(super) fn new(
-        id: String,
-        pinned: bool,
-        restore: Option<String>,
-        cwd: Option<PathBuf>,
-        output: Arc<Mutex<Output>>,
-    ) -> Self {
+    pub(super) fn new(entry: TabEntry, pinned: bool, output: Arc<Mutex<Output>>) -> Self {
         Tab {
-            id,
+            entry,
             pinned,
-            restore,
-            cwd,
             output,
             proc: None,
             generation: 1,
@@ -64,7 +55,7 @@ impl Tab {
 
     pub(super) fn refresh_cwd(&mut self) {
         if let Some(cwd) = self.foreground().and_then(pty::process_cwd) {
-            self.cwd = Some(cwd);
+            self.entry.cwd = Some(cwd);
         }
     }
 }
@@ -84,7 +75,7 @@ impl State {
     pub(super) fn find(&self, id: &str) -> Result<usize> {
         self.tabs
             .iter()
-            .position(|tab| tab.id == id)
+            .position(|tab| tab.entry.id == id)
             .with_context(|| format!("no tab {id}"))
     }
 
@@ -208,7 +199,7 @@ impl Hub {
     }
 
     pub(super) fn require_gui(&self) -> Result<()> {
-        ensure!(self.gui.lock().is_some(), "SpawnShell is not running");
+        ensure!(self.gui.lock().is_some(), "Spawnshell is not running");
         Ok(())
     }
 
@@ -216,12 +207,14 @@ impl Hub {
         let pid = tab.foreground();
         tab.refresh_cwd();
         TabInfo {
-            id: tab.id.clone(),
+            id: tab.entry.id.clone(),
             pinned: tab.pinned,
             alive: tab.proc.is_some(),
             active,
+            title: tab.entry.title.clone(),
             process: pid.and_then(pty::process_name),
             cwd: tab
+                .entry
                 .cwd
                 .as_deref()
                 .map(|cwd| display_path(cwd, self.home.as_deref())),
@@ -235,7 +228,7 @@ impl Hub {
             .tabs
             .iter_mut()
             .map(|tab| {
-                let is_active = active.as_ref() == Some(&tab.id);
+                let is_active = active.as_ref() == Some(&tab.entry.id);
                 self.info(tab, is_active)
             })
             .collect()
@@ -294,7 +287,7 @@ impl Hub {
         let Some(index) = state
             .tabs
             .iter()
-            .position(|tab| tab.id == id && tab.generation == generation)
+            .position(|tab| tab.entry.id == id && tab.generation == generation)
         else {
             return;
         };

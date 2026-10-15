@@ -176,6 +176,10 @@ pub enum Command {
     Restart {
         tab: String,
     },
+    Rename {
+        tab: String,
+        title: Option<String>,
+    },
     Resize {
         rows: u16,
         cols: u16,
@@ -211,6 +215,7 @@ pub struct TabInfo {
     pub pinned: bool,
     pub alive: bool,
     pub active: bool,
+    pub title: Option<String>,
     pub process: Option<String>,
     pub cwd: Option<String>,
 }
@@ -272,7 +277,7 @@ impl fmt::Display for Failure {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Failure::Updating => {
-                formatter.write_str("SpawnShell is updating, try again in a moment")
+                formatter.write_str("Spawnshell is updating, try again in a moment")
             }
             Failure::Message(message) => formatter.write_str(message),
         }

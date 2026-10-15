@@ -11,7 +11,7 @@ use tauri_nspanel::WebviewWindowExt;
 
 mod panel {
     tauri_nspanel::tauri_panel! {
-        panel!(SpawnShellPanel {
+        panel!(SpawnshellPanel {
             config: {
                 can_become_key_window: true,
                 is_floating_panel: true
@@ -21,7 +21,7 @@ mod panel {
 }
 
 pub fn make_panel(window: &tauri::WebviewWindow) -> Result<()> {
-    let panel = window.to_panel::<panel::SpawnShellPanel>()?;
+    let panel = window.to_panel::<panel::SpawnshellPanel>()?;
     panel.set_style_mask(NSWindowStyleMask::NonactivatingPanel)?;
     panel.set_level(NSStatusWindowLevel as i64);
     panel.set_collection_behavior(

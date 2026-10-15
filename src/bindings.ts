@@ -11,6 +11,7 @@ export const commands = {
 	tabActivate: (tab: string) => __TAURI_INVOKE<null>("tab_activate", { tab }),
 	tabPlace: (tab: string, pinned: boolean, position: number | null) => __TAURI_INVOKE<null>("tab_place", { tab, pinned, position }),
 	tabRestart: (tab: string) => __TAURI_INVOKE<null>("tab_restart", { tab }),
+	tabRename: (tab: string, title: string | null) => __TAURI_INVOKE<null>("tab_rename", { tab, title }),
 	tabAttach: (tab: string, onOutput: Channel<ArrayBuffer>) => __TAURI_INVOKE<null>("tab_attach", { tab, onOutput }),
 	tabDetach: (tab: string) => __TAURI_INVOKE<void>("tab_detach", { tab }),
 	tabWrite: (tab: string, data: number[]) => __TAURI_INVOKE<void>("tab_write", { tab, data }),
@@ -52,11 +53,12 @@ export type TabInfo = {
 	pinned: boolean,
 	alive: boolean,
 	active: boolean,
+	title: string | null,
 	process: string | null,
 	cwd: string | null,
 };
 
-export type TabMenuChosen = { action: "new" } | { action: "pin"; tab: string; pinned: boolean } | { action: "restart"; tab: string } | { action: "close"; tab: string };
+export type TabMenuChosen = { action: "new" } | { action: "pin"; tab: string; pinned: boolean } | { action: "rename"; tab: string } | { action: "restart"; tab: string } | { action: "close"; tab: string };
 
 export type TabSelected = string;
 

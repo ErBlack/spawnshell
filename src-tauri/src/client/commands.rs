@@ -88,6 +88,16 @@ pub async fn tab_restart(daemon: State<'_, Daemon>, tab: String) -> CommandResul
 
 #[tauri::command]
 #[specta::specta]
+pub async fn tab_rename(
+    daemon: State<'_, Daemon>,
+    tab: String,
+    title: Option<String>,
+) -> CommandResult<()> {
+    daemon.done(Command::Rename { tab, title }).await
+}
+
+#[tauri::command]
+#[specta::specta]
 pub async fn tab_attach(
     daemon: State<'_, Daemon>,
     tab: String,

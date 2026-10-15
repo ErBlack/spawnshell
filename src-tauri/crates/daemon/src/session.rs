@@ -9,12 +9,13 @@ use crate::files;
 use crate::paths;
 use crate::pty::Size;
 
-#[derive(Serialize, Deserialize)]
-pub struct SavedTab {
+#[derive(Clone, Serialize, Deserialize)]
+pub struct TabEntry {
     #[serde(default = "new_id")]
     pub id: String,
     pub cwd: Option<PathBuf>,
     pub restore: Option<String>,
+    pub title: Option<String>,
 }
 
 pub fn new_id() -> String {
@@ -28,7 +29,7 @@ pub struct Session {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub selected: Option<String>,
     #[serde(default)]
-    pub tabs: Vec<SavedTab>,
+    pub tabs: Vec<TabEntry>,
 }
 
 pub fn encode(session: &Session) -> Result<Vec<u8>> {
@@ -65,7 +66,7 @@ pub fn read_history(id: &str) -> Result<Option<Vec<u8>>> {
     }
 }
 
-pub fn prune_histories(keep: &[SavedTab]) -> Result<()> {
+pub fn prune_histories(keep: &[TabEntry]) -> Result<()> {
     let dir = paths::history_dir()?;
     let entries = match fs::read_dir(&dir) {
         Ok(entries) => entries,
@@ -150,11 +151,12 @@ mod tests {
         std::env::temp_dir().join(format!("spawnshell-{name}-{}", std::process::id()))
     }
 
-    fn tab(id: &str, restore: Option<&str>) -> SavedTab {
-        SavedTab {
+    fn tab(id: &str, restore: Option<&str>) -> TabEntry {
+        TabEntry {
             id: id.into(),
             cwd: Some(PathBuf::from("/tmp")),
             restore: restore.map(str::to_string),
+            title: None,
         }
     }
 

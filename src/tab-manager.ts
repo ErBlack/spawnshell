@@ -1,5 +1,7 @@
 import { commands, type TabInfo } from "./bindings.ts";
+import { errorMessage } from "./error-message.ts";
 import { reportFailure } from "./report-failure.ts";
+import { showError } from "./show-error.ts";
 import { Tab } from "./tab.ts";
 import { TabSelection } from "./tab-selection.ts";
 import type { Terminals } from "./terminals.ts";
@@ -7,11 +9,19 @@ import type { Terminals } from "./terminals.ts";
 export interface TabEntry {
   info: TabInfo;
   tab: Tab;
+  title: string | null;
+}
+
+interface Renaming {
+  title: string | null;
+  settled: boolean;
 }
 
 export class TabManager {
   private readonly selection = new TabSelection();
   private readonly tabs = new Map<string, Tab>();
+  private readonly renaming = new Map<string, Renaming>();
+  private readonly restarting = new Set<string>();
   private readonly terminals: Terminals;
   private readonly container: HTMLElement;
   private readonly onChange: () => void;
@@ -41,7 +51,9 @@ export class TabManager {
   entries(): TabEntry[] {
     return this.selection.items.flatMap((info) => {
       const tab = this.tabs.get(info.id);
-      return tab ? [{ info, tab }] : [];
+      const renaming = this.renaming.get(info.id);
+      const title = renaming ? renaming.title : info.title;
+      return tab ? [{ info, tab, title }] : [];
     });
   }
 
@@ -64,6 +76,11 @@ export class TabManager {
       tab.dispose();
       this.tabs.delete(id);
     }
+    for (const [id, renaming] of this.renaming) {
+      const info = this.selection.find(id);
+      if (!info || renaming.settled || info.title === renaming.title)
+        this.renaming.delete(id);
+    }
     this.switchFrom(before);
     this.onChange();
   }
@@ -71,6 +88,7 @@ export class TabManager {
   clear() {
     for (const tab of this.tabs.values()) tab.dispose();
     this.tabs.clear();
+    this.renaming.clear();
     this.selection.clear();
     this.onChange();
   }
@@ -112,7 +130,27 @@ export class TabManager {
   }
 
   restart(id: string) {
-    reportFailure(commands.tabRestart(id));
+    if (this.restarting.has(id)) return;
+    this.restarting.add(id);
+    reportFailure(
+      commands.tabRestart(id).finally(() => this.restarting.delete(id)),
+    );
+  }
+
+  rename(id: string, title: string | null) {
+    const renaming = { title, settled: false };
+    this.renaming.set(id, renaming);
+    this.onChange();
+    commands.tabRename(id, title).then(
+      () => {
+        renaming.settled = true;
+      },
+      (error: unknown) => {
+        if (this.renaming.get(id) === renaming) this.renaming.delete(id);
+        this.onChange();
+        showError(errorMessage(error));
+      },
+    );
   }
 
   place(id: string, pinned: boolean, position: number | null) {

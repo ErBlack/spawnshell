@@ -10,6 +10,18 @@ export interface TabsActions {
   select(id: string): void;
   menu(id: string | undefined): void;
   place(id: string, pinned: boolean, position: number): void;
+  rename(id: string, title: string | null): void;
+  focus(): void;
+}
+
+interface Editor {
+  id: string;
+  input: HTMLInputElement;
+  finish(save: boolean): void;
+}
+
+function label({ info, tab, title }: TabEntry): string {
+  return title || tab.title.text || info.process || "";
 }
 
 function fill(group: HTMLElement, buttons: HTMLElement[]) {
@@ -29,6 +41,7 @@ export class Tabs {
   private entries: readonly TabEntry[] = [];
   private active: string | undefined;
   private dragged: string | undefined;
+  private editor: Editor | undefined;
 
   constructor(
     bar: HTMLElement,
@@ -55,6 +68,9 @@ export class Tabs {
     for (const id of this.buttons.keys())
       if (!entries.some((entry) => entry.info.id === id))
         this.buttons.delete(id);
+    const editor = this.editor;
+    if (editor && !entries.some((entry) => entry.info.id === editor.id))
+      editor.finish(false);
     this.draw();
     if (switched && active)
       this.buttons.get(active)?.root.scrollIntoView({
@@ -63,19 +79,61 @@ export class Tabs {
       });
   }
 
+  rename(id: string) {
+    const entry = this.entries.find(({ info }) => info.id === id);
+    if (!entry || this.editor?.id === id) return;
+    this.editor?.finish(true);
+    const initial = label(entry);
+    const input = document.createElement("input");
+    input.className = "tab tab-rename";
+    input.value = initial;
+    input.spellcheck = false;
+    this.owners.set(input, id);
+
+    let finished = false;
+    const finish = (save: boolean) => {
+      if (finished) return;
+      finished = true;
+      if (this.editor?.input === input) this.editor = undefined;
+      this.draw();
+      const text = input.value.trim();
+      const title = text || null;
+      const current = this.entries.find(({ info }) => info.id === id)?.title;
+      if (save && text !== initial && title !== current)
+        this.actions.rename(id, title);
+      this.actions.focus();
+    };
+    input.addEventListener("keydown", (event) => {
+      if (event.isComposing) return;
+      if (event.key === "Enter") finish(true);
+      else if (event.key === "Escape") finish(false);
+    });
+    input.addEventListener("blur", () => finish(true));
+
+    this.editor = { id, input, finish };
+    this.draw();
+    input.focus();
+    input.select();
+  }
+
   private draw() {
-    for (const { info, tab } of this.entries) {
+    for (const entry of this.entries) {
+      const { info, tab } = entry;
       const { root, caption, dot } = this.button(info.id);
-      const label = tab.title.text || info.process || "";
+      const text = label(entry);
       if (info.id === this.active) root.setAttribute("aria-current", "true");
       else root.removeAttribute("aria-current");
       root.toggleAttribute("data-stopped", !info.alive);
       root.title = info.cwd ? `${info.process ?? ""} — ${info.cwd}` : "";
-      if (caption.textContent !== label) caption.textContent = label;
+      if (caption.textContent !== text) caption.textContent = text;
       dot.hidden = !tab.dirty || info.id === this.active;
     }
 
-    const roots = this.entries.map(({ info }) => this.button(info.id).root);
+    const roots = this.entries.map(({ info }) =>
+      this.editor?.id === info.id
+        ? this.editor.input
+        : this.button(info.id).root,
+    );
     const pinned = this.entries.filter(({ info }) => info.pinned).length;
     fill(this.pinnedGroup, roots.slice(0, pinned));
     fill(this.group, roots.slice(pinned));
@@ -98,6 +156,7 @@ export class Tabs {
     root.addEventListener("mousedown", (event) => event.preventDefault());
     root.addEventListener("pointerdown", (event) => this.drag(id, event));
     root.addEventListener("click", () => this.actions.select(id));
+    root.addEventListener("dblclick", () => this.rename(id));
 
     const button = { root, caption, dot };
     this.buttons.set(id, button);

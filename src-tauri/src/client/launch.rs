@@ -14,7 +14,7 @@ use super::REQUEST_TIMEOUT;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const HELLO_ATTEMPTS: u32 = 10;
-const REOPEN: &str = "SpawnShell was moved or updated, quit and reopen it";
+const REOPEN: &str = "Spawnshell was moved or updated, quit and reopen it";
 
 fn log_dir() -> Result<PathBuf> {
     dirs::home_dir()
@@ -58,7 +58,7 @@ fn wait_for_socket(mut child: Option<&mut Child>) -> Result<Connection> {
         match Connection::connect(&socket, REQUEST_TIMEOUT) {
             Ok(connection) => return Ok(connection),
             Err(error) if Instant::now() >= deadline => {
-                return Err(error).context("can't reach SpawnShell's background process");
+                return Err(error).context("can't reach Spawnshell's background process");
             }
             Err(_) => {}
         }

@@ -43,11 +43,17 @@ async function main() {
         if (manager.find(id)?.alive === false) manager.restart(id);
       },
       menu(id) {
-        const pinned = !!(id && manager.find(id)?.pinned);
+        const pinned = Boolean(id && manager.find(id)?.pinned);
         reportFailure(commands.showTabMenu(id ?? null, pinned));
       },
       place(id, pinned, position) {
         manager.place(id, pinned, position);
+      },
+      rename(id, title) {
+        manager.rename(id, title);
+      },
+      focus() {
+        manager.focus();
       },
     },
   );
@@ -67,7 +73,7 @@ async function main() {
         );
     }),
     events.warning.listen(({ payload }) => showError(payload)),
-    listenTabMenu(manager),
+    listenTabMenu(manager, tabs),
   ]);
   import.meta.hot?.dispose(() => {
     for (const unlisten of unlisteners) unlisten();

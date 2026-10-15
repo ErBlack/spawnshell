@@ -14,7 +14,7 @@ use super::process::{Ownership, Proc};
 use super::save::stored_entry;
 use super::{Exit, report};
 use crate::pty::Size;
-use crate::session;
+use crate::session::{self, TabEntry};
 
 impl Hub {
     fn create(self: &Arc<Self>, pinned: bool) -> Result<String> {
@@ -28,7 +28,13 @@ impl Hub {
             bail!(Failure::Updating);
         }
         let Spawned { pid, master, cwd } = spawned;
-        let mut tab = Tab::new(id.clone(), pinned, None, Some(cwd), output);
+        let entry = TabEntry {
+            id: id.clone(),
+            cwd: Some(cwd),
+            restore: None,
+            title: None,
+        };
+        let mut tab = Tab::new(entry, pinned, output);
         self.attach_process(&mut tab, pid, master, Ownership::Child, Wanted::Run)?;
         if state.size != size {
             tab.resize(state.size);
@@ -64,6 +70,23 @@ impl Hub {
         Ok(())
     }
 
+    fn rename(&self, id: &str, title: Option<String>) -> Result<()> {
+        let title = title.map(|title| title.trim().to_string());
+        if let Some(title) = &title {
+            ensure!(!title.is_empty(), "a tab title can't be empty");
+            ensure!(
+                !title.chars().any(char::is_control),
+                "a tab title can't contain control characters"
+            );
+        }
+        let mut state = self.state.lock();
+        let index = state.find(id)?;
+        state.tabs[index].entry.title = title;
+        drop(state);
+        self.changed();
+        Ok(())
+    }
+
     fn restart(self: &Arc<Self>, id: &str) -> Result<()> {
         let stored = stored_entry(id);
         let size = self.state.lock().size;
@@ -75,7 +98,7 @@ impl Hub {
             let tab = &mut state.tabs[index];
             ensure!(tab.pinned, "only pinned tabs can be restarted");
             if let Some(entry) = stored {
-                tab.restore = entry.restore;
+                tab.entry.restore = entry.restore;
             }
             tab.refresh_cwd();
             tab.output.lock().mute();
@@ -86,8 +109,8 @@ impl Hub {
             let previous = std::mem::replace(&mut tab.output, Arc::clone(&output));
             (
                 previous,
-                tab.cwd.clone(),
-                tab.restore.clone(),
+                tab.entry.cwd.clone(),
+                tab.entry.restore.clone(),
                 tab.generation,
             )
         };
@@ -109,13 +132,13 @@ impl Hub {
         let Some(tab) = state
             .tabs
             .iter_mut()
-            .find(|tab| tab.id == id && tab.generation == generation)
+            .find(|tab| tab.entry.id == id && tab.generation == generation)
         else {
             spawned.discard();
             bail!("tab {id} changed while restarting");
         };
         let Spawned { pid, master, cwd } = spawned;
-        tab.cwd = Some(cwd);
+        tab.entry.cwd = Some(cwd);
         self.attach_process(tab, pid, master, Ownership::Child, Wanted::Run)?;
         if current != size {
             tab.resize(current);
@@ -164,7 +187,7 @@ impl Hub {
         if let Some(proc) = state
             .tabs
             .iter()
-            .find(|tab| tab.id == id)
+            .find(|tab| tab.entry.id == id)
             .and_then(|tab| tab.proc.as_ref())
         {
             let _ = proc.input.send(data);
@@ -286,6 +309,7 @@ impl Hub {
                 position,
             } => self.place(&tab, pinned, position).map(|()| Reply::Done),
             Command::Restart { tab } => self.restart(&tab).map(|()| Reply::Done),
+            Command::Rename { tab, title } => self.rename(&tab, title).map(|()| Reply::Done),
             Command::Resize { rows, cols } => {
                 self.resize(Size::new(rows, cols));
                 Ok(Reply::Done)

@@ -123,7 +123,7 @@ impl Hub {
         }
         if let Some(notice) = &notice {
             prelude.extend_from_slice(
-                format!("\x1b[33m[SpawnShell: {notice}, restore skipped]\x1b[0m\r\n").as_bytes(),
+                format!("\x1b[33m[Spawnshell: {notice}, restore skipped]\x1b[0m\r\n").as_bytes(),
             );
         }
         if launch.history.is_some() {
@@ -169,7 +169,7 @@ impl Hub {
             env: &env,
             size,
         });
-        match spawned.context("SpawnShell couldn't start the shell") {
+        match spawned.context("Spawnshell couldn't start the shell") {
             Ok((pid, master)) => Ok(Spawned {
                 pid,
                 master,
@@ -194,7 +194,7 @@ impl Hub {
     ) -> Result<()> {
         let gate = Gate::new(initial);
         let hub = Arc::clone(self);
-        let id = tab.id.clone();
+        let id = tab.entry.id.clone();
         let generation = tab.generation;
         let started = start_writer(&master).and_then(|input| {
             start_io(&master, Arc::clone(&tab.output), gate.clone(), move || {

@@ -6,7 +6,7 @@ authors = ["erblack"]
 edition = "2024"
 
 [[bin]]
-name = "SpawnShell"
+name = "Spawnshell"
 path = "src/main.rs"
 
 [workspace]

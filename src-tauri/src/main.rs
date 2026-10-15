@@ -15,7 +15,7 @@ fn fail_to_start(app: &AppHandle, message: String) {
     let handle = app.clone();
     app.dialog()
         .message(message)
-        .title("SpawnShell failed to start")
+        .title("Spawnshell failed to start")
         .kind(MessageDialogKind::Error)
         .show(move |_| handle.exit(1));
 }
@@ -33,7 +33,7 @@ fn report_fatal(app: AppHandle, message: String) {
 fn report_error(app: AppHandle, message: String) {
     app.dialog()
         .message(message)
-        .title("SpawnShell")
+        .title("Spawnshell")
         .kind(MessageDialogKind::Error)
         .show(|_| {});
 }
@@ -48,6 +48,7 @@ fn bindings() -> tauri_specta::Builder<tauri::Wry> {
             client::commands::tab_activate,
             client::commands::tab_place,
             client::commands::tab_restart,
+            client::commands::tab_rename,
             client::commands::tab_attach,
             client::commands::tab_detach,
             client::commands::tab_write,

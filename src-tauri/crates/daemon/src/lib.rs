@@ -123,7 +123,7 @@ fn take_over_previous_data(dir: &Path) -> Result<()> {
     };
     ensure!(
         lock(&lock_file, &lock_path)?,
-        "the previous version, Summon, is still running: quit it with \"Quit and Stop Pinned Tabs\" and open SpawnShell again"
+        "the previous version, Summon, is still running: quit it with \"Quit and Stop Pinned Tabs\" and open Spawnshell again"
     );
     if dir.exists() {
         return Ok(());
@@ -173,10 +173,10 @@ fn fresh(exit: mpsc::Sender<Exit>) -> Result<Option<Arc<Hub>>> {
             history,
         };
         let spawned = hub.launch(&entry.id, &output, size, launch);
-        let mut tab = Tab::new(entry.id, true, entry.restore, entry.cwd, output);
+        let mut tab = Tab::new(entry, true, output);
         let mut state = hub.state.lock();
         let attached = spawned.and_then(|spawned| {
-            tab.cwd = Some(spawned.cwd);
+            tab.entry.cwd = Some(spawned.cwd);
             hub.attach_process(
                 &mut tab,
                 spawned.pid,

@@ -80,12 +80,9 @@ body {
   display: flex;
   align-items: center;
   overflow: clip;
-  text-overflow: ellipsis;
   min-inline-size: 0;
   padding-inline: 0.5em;
-  background: transparent;
   color: #8b949e;
-  font: inherit;
   text-align: start;
   cursor: default;
 }
@@ -104,6 +101,13 @@ body {
   overflow: clip;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.tab.tab-rename {
+  cursor: text;
+  color: var(--terminal-foreground);
+  background-color: #ffffff14;
+  box-shadow: inset 0 0 0 1px #58a6ff;
 }
 
 .tab[data-stopped] .tab-title {

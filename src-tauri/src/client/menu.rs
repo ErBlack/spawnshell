@@ -15,6 +15,7 @@ const STOP: &str = "app:stop";
 pub enum TabMenuChosen {
     New,
     Pin { tab: String, pinned: bool },
+    Rename { tab: String },
     Restart { tab: String },
     Close { tab: String },
 }
@@ -50,12 +51,16 @@ pub fn show_tab_menu(
     pinned: bool,
 ) -> CommandResult<()> {
     let menu = if let Some(tab) = tab {
+        let rename = TabMenuChosen::Rename { tab: tab.clone() };
         let label = if pinned { "Unpin Tab" } else { "Pin Tab" };
         let pin = TabMenuChosen::Pin {
             tab: tab.clone(),
             pinned: !pinned,
         };
-        let mut menu = MenuBuilder::new(&window).text(pin.id(), label);
+        let mut menu = MenuBuilder::new(&window)
+            .text(rename.id(), "Rename Tab…")
+            .separator()
+            .text(pin.id(), label);
         if pinned {
             let restart = TabMenuChosen::Restart { tab: tab.clone() };
             menu = menu.text(restart.id(), "Restart Tab");
@@ -65,7 +70,7 @@ pub fn show_tab_menu(
         MenuBuilder::new(&window)
             .text(TabMenuChosen::New.id(), "New Tab")
             .separator()
-            .text(QUIT, "Quit SpawnShell")
+            .text(QUIT, "Quit Spawnshell")
             .text(STOP, "Quit and Stop Pinned Tabs")
     };
     window.popup_menu(&menu.build()?)?;

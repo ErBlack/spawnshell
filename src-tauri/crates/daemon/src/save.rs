@@ -11,7 +11,7 @@ use super::report;
 use crate::files;
 use crate::paths;
 use crate::pty::Size;
-use crate::session::{self, SavedTab};
+use crate::session::{self, TabEntry};
 
 pub(super) fn set_aside(error: anyhow::Error, paths: &[&Path]) -> Result<()> {
     match session::set_aside(paths) {
@@ -40,7 +40,7 @@ pub(super) fn restore_history(id: &str) -> Option<Vec<u8>> {
     })
 }
 
-pub(super) fn stored_entry(id: &str) -> Option<SavedTab> {
+pub(super) fn stored_entry(id: &str) -> Option<TabEntry> {
     match paths::session_file().and_then(|path| session::read(&path)) {
         Ok(session) => session.tabs.into_iter().find(|entry| entry.id == id),
         Err(error) => {
@@ -100,28 +100,26 @@ impl Hub {
             }
         };
         let mut outputs = Vec::new();
-        let (size, selected, tabs): (Size, Option<String>, Vec<SavedTab>) = {
+        let (size, selected, tabs): (Size, Option<String>, Vec<TabEntry>) = {
             let mut state = self.state.lock();
             let size = state.size;
-            let selected = state
-                .active
-                .clone()
-                .filter(|id| state.tabs.iter().any(|tab| tab.pinned && &tab.id == id));
+            let selected = state.active.clone().filter(|id| {
+                state
+                    .tabs
+                    .iter()
+                    .any(|tab| tab.pinned && &tab.entry.id == id)
+            });
             let tabs = state
                 .tabs
                 .iter_mut()
                 .filter(|tab| tab.pinned)
                 .map(|tab| {
-                    if let Some(entry) = stored.iter().find(|entry| entry.id == tab.id) {
-                        tab.restore = entry.restore.clone();
+                    if let Some(entry) = stored.iter().find(|entry| entry.id == tab.entry.id) {
+                        tab.entry.restore = entry.restore.clone();
                     }
                     tab.refresh_cwd();
-                    outputs.push((tab.id.clone(), Arc::clone(&tab.output)));
-                    SavedTab {
-                        id: tab.id.clone(),
-                        cwd: tab.cwd.clone(),
-                        restore: tab.restore.clone(),
-                    }
+                    outputs.push((tab.entry.id.clone(), Arc::clone(&tab.output)));
+                    tab.entry.clone()
                 })
                 .collect();
             (size, selected, tabs)

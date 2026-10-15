@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-const BIN: &str = env!("CARGO_BIN_EXE_SpawnShell");
+const BIN: &str = env!("CARGO_BIN_EXE_Spawnshell");
 const DATA_DIR: &str = "Library/Application Support/com.erblack.spawnshell-terminal";
 const PATIENCE: Duration = Duration::from_secs(10);
 
@@ -479,6 +479,42 @@ fn the_selected_pinned_tab_survives_a_restart() {
     gui.call(&json!({"command": "activate", "tab": unpinned}));
     gui.call(&json!({"command": "save"}));
     assert!(env.session().get("selected").is_none());
+}
+
+#[test]
+fn a_tab_title_set_from_the_cli_survives_restarts_and_resets() {
+    let env = Env::new("rename");
+    let first = env.start();
+    let mut gui = env.connect("gui");
+    let tab = new_tab(&mut gui, true);
+
+    assert!(succeeded(
+        &env.spawnshell(&["rename", " build ", "--tab", &tab])
+    ));
+    assert_eq!(gui.tabs()[0]["title"], "build");
+    let output = env.spawnshell(&["list"]);
+    assert!(String::from_utf8_lossy(&output.stdout).ends_with("\tbuild\n"));
+    assert_eq!(env.session()["tabs"][0]["title"], "build");
+
+    let upgrade = gui.try_call(&json!({"command": "upgrade", "exe": BIN}));
+    assert!(upgrade.is_err() || gui.closed());
+    let mut gui = env.connect("gui");
+    assert_eq!(gui.tabs()[0]["title"], "build", "lost in an upgrade");
+    gui.call(&json!({"command": "stop"}));
+    drop(gui);
+    drop(first);
+
+    let _second = env.start();
+    let mut gui = env.connect("gui");
+    assert_eq!(gui.tabs()[0]["title"], "build", "lost in a restart");
+
+    assert!(succeeded(&env.spawnshell(&["reset-title", "--tab", &tab])));
+    assert!(gui.tabs()[0]["title"].is_null());
+    for rejected in [vec![], vec!["  "], vec!["a\tb"]] {
+        let mut args = vec!["rename", "--tab", &tab];
+        args.extend(rejected);
+        assert!(!env.spawnshell(&args).status.success(), "accepted {args:?}");
+    }
 }
 
 #[test]

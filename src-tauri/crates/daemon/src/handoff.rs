@@ -3,7 +3,7 @@ use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::os::unix::net::UnixListener;
 use std::os::unix::process::CommandExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Stdio;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, mpsc};
@@ -19,7 +19,7 @@ use super::hub::{Hub, Restored, Tab};
 use super::process::Ownership;
 use super::save::restore_history;
 use crate::pty::{self, Size};
-use crate::session;
+use crate::session::{self, TabEntry};
 
 const PARK_TIMEOUT: Duration = Duration::from_secs(2);
 const HANDOFF_TIMEOUT: Duration = Duration::from_secs(5);
@@ -35,10 +35,9 @@ struct Manifest {
 
 #[derive(Serialize, Deserialize)]
 struct ManifestTab {
-    id: String,
+    #[serde(flatten)]
+    entry: TabEntry,
     pinned: bool,
-    restore: Option<String>,
-    cwd: Option<PathBuf>,
     screen: String,
     #[serde(default)]
     alternate: bool,
@@ -86,7 +85,7 @@ impl Hub {
             let histories: Vec<(String, Vec<u8>)> = state
                 .tabs
                 .iter()
-                .map(|tab| (tab.id.clone(), tab.output.lock().history().to_vec()))
+                .map(|tab| (tab.entry.id.clone(), tab.output.lock().history().to_vec()))
                 .collect();
             let manifest = Manifest {
                 listener: self.listener.as_raw_fd(),
@@ -109,10 +108,8 @@ impl Hub {
 fn manifest_tab(tab: &Tab) -> ManifestTab {
     let output = tab.output.lock();
     ManifestTab {
-        id: tab.id.clone(),
+        entry: tab.entry.clone(),
         pinned: tab.pinned,
-        restore: tab.restore.clone(),
-        cwd: tab.cwd.clone(),
         screen: output.screen(),
         alternate: output.alternate(),
         modes: output.modes(),
@@ -192,7 +189,7 @@ pub(super) fn adopt(exit: mpsc::Sender<Exit>) -> Result<Arc<Hub>> {
     let histories: Vec<_> = manifest
         .tabs
         .iter()
-        .map(|entry| restore_history(&entry.id))
+        .map(|adopted| restore_history(&adopted.entry.id))
         .collect();
     let restored = Restored {
         size: manifest.size,
@@ -200,19 +197,19 @@ pub(super) fn adopt(exit: mpsc::Sender<Exit>) -> Result<Arc<Hub>> {
     };
     let hub = Hub::new(listener, lock_file, restored, exit);
     let mut state = hub.state.lock();
-    for (entry, history) in manifest.tabs.into_iter().zip(histories) {
-        let output = hub.new_output(&entry.id, manifest.size);
+    for (adopted, history) in manifest.tabs.into_iter().zip(histories) {
+        let output = hub.new_output(&adopted.entry.id, manifest.size);
         {
             let mut output = output.lock();
-            if entry.alternate {
+            if adopted.alternate {
                 output.parser.process(b"\x1b[?1049h");
             }
-            output.parser.process(entry.screen.as_bytes());
-            output.restore_modes(&entry.modes);
-            output.set_history(history.unwrap_or_else(|| entry.screen.clone().into_bytes()));
+            output.parser.process(adopted.screen.as_bytes());
+            output.restore_modes(&adopted.modes);
+            output.set_history(history.unwrap_or_else(|| adopted.screen.clone().into_bytes()));
         }
-        let mut tab = Tab::new(entry.id, entry.pinned, entry.restore, entry.cwd, output);
-        if let Some((pid, fd)) = entry.process {
+        let mut tab = Tab::new(adopted.entry, adopted.pinned, output);
+        if let Some((pid, fd)) = adopted.process {
             let master = unsafe { adopt_fd(fd) }?;
             hub.attach_process(&mut tab, pid, master, Ownership::Adopted, Wanted::Pause)?;
         }
@@ -220,4 +217,21 @@ pub(super) fn adopt(exit: mpsc::Sender<Exit>) -> Result<Arc<Hub>> {
     }
     drop(state);
     Ok(hub)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ManifestTab;
+
+    #[test]
+    fn a_tab_from_an_older_daemon_is_adopted() {
+        let tab: ManifestTab = serde_json::from_str(
+            r#"{"id":"a","pinned":true,"restore":"echo hi","cwd":"/tmp","screen":"$ ","process":null}"#,
+        )
+        .unwrap();
+        assert_eq!(tab.entry.id, "a");
+        assert_eq!(tab.entry.restore.as_deref(), Some("echo hi"));
+        assert!(tab.entry.title.is_none());
+        assert!(tab.pinned);
+    }
 }

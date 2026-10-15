@@ -84,7 +84,7 @@ impl Hub {
                                 break;
                             };
                             let refused = format!(
-                                "unsupported request ({error}); the background process may be older, restart SpawnShell"
+                                "unsupported request ({error}); the background process may be older, restart Spawnshell"
                             );
                             (seq, Err(Failure::Message(refused)))
                         }

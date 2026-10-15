@@ -14,12 +14,12 @@ const TIMEOUT: Duration = Duration::from_secs(15);
 const UPDATE_WAIT: Duration = Duration::from_secs(10);
 const RETRY_DELAY: Duration = Duration::from_millis(200);
 
-/// Control SpawnShell from the command line
+/// Control Spawnshell from the command line
 #[derive(Parser)]
 #[command(
     name = "spawnshell",
     bin_name = "spawnshell",
-    after_help = "Tab commands act on the tab they run in. Outside SpawnShell, pass --tab ID."
+    after_help = "Tab commands act on the tab they run in. Outside Spawnshell, pass --tab ID."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -28,7 +28,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Action {
-    /// List tabs: id, pinned, running, active, process, directory
+    /// List tabs: id, pinned, running, active, process, directory, title
     List,
     /// Open a new tab
     New {
@@ -52,15 +52,23 @@ enum Action {
     },
     /// Restart a pinned tab
     Restart(Target),
+    /// Set a tab title
+    Rename {
+        title: String,
+        #[command(flatten)]
+        target: Target,
+    },
+    /// Drop the tab title set by hand; the tab follows the running program again
+    ResetTitle(Target),
     /// Show the window
     Show,
     /// Hide the window
     Hide,
     /// Show or hide the window
     Toggle,
-    /// Quit SpawnShell; pinned tabs keep running
+    /// Quit Spawnshell; pinned tabs keep running
     Quit,
-    /// Quit SpawnShell and stop pinned tabs
+    /// Quit Spawnshell and stop pinned tabs
     Stop,
     /// Show settings, show one setting, or change it
     Config {
@@ -93,9 +101,9 @@ fn unanswered(error: io::Error) -> anyhow::Error {
         io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
     );
     let context = if timed_out {
-        "SpawnShell did not answer"
+        "Spawnshell did not answer"
     } else {
-        "lost the connection to SpawnShell"
+        "lost the connection to Spawnshell"
     };
     anyhow::Error::new(error).context(context)
 }
@@ -108,7 +116,7 @@ impl Client {
     fn connect(socket: PathBuf, deadline: Instant) -> Result<Self> {
         loop {
             let mut connection =
-                Connection::connect(&socket, TIMEOUT).context("SpawnShell is not running")?;
+                Connection::connect(&socket, TIMEOUT).context("Spawnshell is not running")?;
             match connection.call(Command::Hello { role: Role::Cli }) {
                 Ok(Ok(_)) => {
                     return Ok(Client {
@@ -143,7 +151,7 @@ impl Client {
     fn tabs(&mut self) -> Result<Vec<TabInfo>> {
         match self.call(&Command::List)? {
             Reply::Tabs { tabs } => Ok(tabs),
-            _ => bail!("unexpected reply from SpawnShell"),
+            _ => bail!("unexpected reply from Spawnshell"),
         }
     }
 }
@@ -154,7 +162,11 @@ fn line(tab: TabInfo) -> String {
     let active = if tab.active { "active" } else { "-" };
     let process = tab.process.unwrap_or_default();
     let cwd = tab.cwd.unwrap_or_default();
-    format!("{}\t{pinned}\t{state}\t{active}\t{process}\t{cwd}", tab.id)
+    let title = tab.title.unwrap_or_default();
+    format!(
+        "{}\t{pinned}\t{state}\t{active}\t{process}\t{cwd}\t{title}",
+        tab.id
+    )
 }
 
 fn execute(cli: Cli, out: &mut impl Write) -> Result<()> {
@@ -188,6 +200,14 @@ fn execute(cli: Cli, out: &mut impl Write) -> Result<()> {
             position: Some(position),
         },
         Action::Restart(Target { tab }) => Command::Restart { tab },
+        Action::Rename {
+            title,
+            target: Target { tab },
+        } => Command::Rename {
+            tab,
+            title: Some(title),
+        },
+        Action::ResetTitle(Target { tab }) => Command::Rename { tab, title: None },
         Action::Show => Command::Show,
         Action::Hide => Command::Hide,
         Action::Toggle => Command::Toggle,
@@ -199,7 +219,7 @@ fn execute(cli: Cli, out: &mut impl Write) -> Result<()> {
         } => Command::SetConfig { key, value },
         Action::Config { key, .. } => {
             let Reply::Config { config } = client.call(&Command::Config)? else {
-                bail!("unexpected reply from SpawnShell");
+                bail!("unexpected reply from Spawnshell");
             };
             match key {
                 Some(key) => writeln!(out, "{}", config.get(key))?,
