@@ -10,7 +10,7 @@ export interface TabsActions {
   select(id: string): void;
   menu(id: string | undefined): void;
   place(id: string, pinned: boolean, position: number): void;
-  rename(id: string, title: string | null): void;
+  rename(id: string, title: string): void;
   focus(): void;
 }
 
@@ -96,10 +96,9 @@ export class Tabs {
       finished = true;
       if (this.editor?.input === input) this.editor = undefined;
       this.draw();
-      const text = input.value.trim();
-      const title = text || null;
+      const title = input.value.trim();
       const current = this.entries.find(({ info }) => info.id === id)?.title;
-      if (save && text !== initial && title !== current)
+      if (save && title !== initial && (title || null) !== current)
         this.actions.rename(id, title);
       this.actions.focus();
     };

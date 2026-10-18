@@ -11,10 +11,11 @@ use super::flow::Wanted;
 use super::hub::{Gui, Hub, Tab};
 use super::launch::{Launch, Spawned};
 use super::process::{Ownership, Proc};
-use super::save::stored_entry;
 use super::{Exit, report};
 use crate::pty::Size;
 use crate::session::{self, TabEntry};
+
+const UNPINNED_RESTORE: &str = "only pinned tabs have a restore command";
 
 impl Hub {
     fn create(self: &Arc<Self>, pinned: bool) -> Result<String> {
@@ -70,25 +71,40 @@ impl Hub {
         Ok(())
     }
 
-    fn rename(&self, id: &str, title: Option<String>) -> Result<()> {
-        let title = title.map(|title| title.trim().to_string());
-        if let Some(title) = &title {
-            ensure!(!title.is_empty(), "a tab title can't be empty");
-            ensure!(
-                !title.chars().any(char::is_control),
-                "a tab title can't contain control characters"
-            );
-        }
+    fn rename(&self, id: &str, title: &str) -> Result<()> {
+        let title = title.trim();
+        ensure!(
+            !title.chars().any(char::is_control),
+            "a tab title can't contain control characters"
+        );
         let mut state = self.state.lock();
         let index = state.find(id)?;
-        state.tabs[index].entry.title = title;
+        state.tabs[index].entry.title = (!title.is_empty()).then(|| title.to_string());
+        drop(state);
+        self.changed();
+        Ok(())
+    }
+
+    fn restore(&self, id: &str) -> Result<Option<String>> {
+        let state = self.state.lock();
+        let tab = &state.tabs[state.find(id)?];
+        ensure!(tab.pinned, UNPINNED_RESTORE);
+        Ok(tab.entry.restore.clone())
+    }
+
+    fn set_restore(&self, id: &str, restore: &str) -> Result<()> {
+        let restore = restore.trim();
+        let mut state = self.state.lock();
+        let index = state.find(id)?;
+        let tab = &mut state.tabs[index];
+        ensure!(tab.pinned, UNPINNED_RESTORE);
+        tab.entry.restore = (!restore.is_empty()).then(|| restore.to_string());
         drop(state);
         self.changed();
         Ok(())
     }
 
     fn restart(self: &Arc<Self>, id: &str) -> Result<()> {
-        let stored = stored_entry(id);
         let size = self.state.lock().size;
         let output = self.new_output(id, size);
         let (previous, cwd, restore, generation) = {
@@ -97,9 +113,6 @@ impl Hub {
             let index = state.find(id)?;
             let tab = &mut state.tabs[index];
             ensure!(tab.pinned, "only pinned tabs can be restarted");
-            if let Some(entry) = stored {
-                tab.entry.restore = entry.restore;
-            }
             tab.refresh_cwd();
             tab.output.lock().mute();
             if let Some(proc) = tab.proc.take() {
@@ -262,7 +275,10 @@ impl Hub {
         tx: &mpsc::Sender<Frame>,
     ) -> Result<Reply> {
         if self.upgrading.load(Ordering::SeqCst)
-            && !matches!(command, Command::List | Command::Config)
+            && !matches!(
+                command,
+                Command::List | Command::Restore { .. } | Command::Config
+            )
         {
             bail!(Failure::Updating);
         }
@@ -309,7 +325,13 @@ impl Hub {
                 position,
             } => self.place(&tab, pinned, position).map(|()| Reply::Done),
             Command::Restart { tab } => self.restart(&tab).map(|()| Reply::Done),
-            Command::Rename { tab, title } => self.rename(&tab, title).map(|()| Reply::Done),
+            Command::Rename { tab, title } => self.rename(&tab, &title).map(|()| Reply::Done),
+            Command::Restore { tab } => {
+                self.restore(&tab).map(|restore| Reply::Restore { restore })
+            }
+            Command::SetRestore { tab, restore } => {
+                self.set_restore(&tab, &restore).map(|()| Reply::Done)
+            }
             Command::Resize { rows, cols } => {
                 self.resize(Size::new(rows, cols));
                 Ok(Reply::Done)

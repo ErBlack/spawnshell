@@ -52,14 +52,18 @@ enum Action {
     },
     /// Restart a pinned tab
     Restart(Target),
-    /// Set a tab title
+    /// Set a tab title; an empty title makes the tab follow the running program again
     Rename {
         title: String,
         #[command(flatten)]
         target: Target,
     },
-    /// Drop the tab title set by hand; the tab follows the running program again
-    ResetTitle(Target),
+    /// Show or set the command a pinned tab runs when it comes back; an empty command removes it
+    Restore {
+        command: Option<String>,
+        #[command(flatten)]
+        target: Target,
+    },
     /// Show the window
     Show,
     /// Hide the window
@@ -203,11 +207,23 @@ fn execute(cli: Cli, out: &mut impl Write) -> Result<()> {
         Action::Rename {
             title,
             target: Target { tab },
-        } => Command::Rename {
-            tab,
-            title: Some(title),
-        },
-        Action::ResetTitle(Target { tab }) => Command::Rename { tab, title: None },
+        } => Command::Rename { tab, title },
+        Action::Restore {
+            command: Some(restore),
+            target: Target { tab },
+        } => Command::SetRestore { tab, restore },
+        Action::Restore {
+            command: None,
+            target: Target { tab },
+        } => {
+            let Reply::Restore { restore } = client.call(&Command::Restore { tab })? else {
+                bail!("unexpected reply from Spawnshell");
+            };
+            if let Some(restore) = restore {
+                writeln!(out, "{restore}")?;
+            }
+            return Ok(());
+        }
         Action::Show => Command::Show,
         Action::Hide => Command::Hide,
         Action::Toggle => Command::Toggle,

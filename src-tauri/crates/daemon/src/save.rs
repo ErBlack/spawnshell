@@ -40,16 +40,6 @@ pub(super) fn restore_history(id: &str) -> Option<Vec<u8>> {
     })
 }
 
-pub(super) fn stored_entry(id: &str) -> Option<TabEntry> {
-    match paths::session_file().and_then(|path| session::read(&path)) {
-        Ok(session) => session.tabs.into_iter().find(|entry| entry.id == id),
-        Err(error) => {
-            report(&error);
-            None
-        }
-    }
-}
-
 fn write_histories(outputs: &[(String, Arc<Mutex<Output>>)], rewrite: bool) -> Result<()> {
     let mut taken = Vec::new();
     for (id, output) in outputs {
@@ -87,16 +77,14 @@ impl Hub {
             return Ok(());
         }
         let path = paths::session_file()?;
-        let on_disk = session::read_bytes(&path).and_then(|raw| {
-            let session = session::parse(&path, raw.as_deref())?;
-            Ok((session.tabs, raw))
-        });
-        let (stored, raw, rewrite_histories) = match on_disk {
-            Ok((tabs, raw)) => (tabs, raw, false),
+        let on_disk = session::read_bytes(&path)
+            .and_then(|raw| session::parse(&path, raw.as_deref()).map(|_| raw));
+        let (raw, rewrite_histories) = match on_disk {
+            Ok(raw) => (raw, false),
             Err(error) => {
                 let history = paths::history_dir()?;
                 set_aside(error, &[&history, &path])?;
-                (Vec::new(), None, true)
+                (None, true)
             }
         };
         let mut outputs = Vec::new();
@@ -114,9 +102,6 @@ impl Hub {
                 .iter_mut()
                 .filter(|tab| tab.pinned)
                 .map(|tab| {
-                    if let Some(entry) = stored.iter().find(|entry| entry.id == tab.entry.id) {
-                        tab.entry.restore = entry.restore.clone();
-                    }
                     tab.refresh_cwd();
                     outputs.push((tab.entry.id.clone(), Arc::clone(&tab.output)));
                     tab.entry.clone()

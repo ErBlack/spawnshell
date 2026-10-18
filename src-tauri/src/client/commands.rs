@@ -91,7 +91,7 @@ pub async fn tab_restart(daemon: State<'_, Daemon>, tab: String) -> CommandResul
 pub async fn tab_rename(
     daemon: State<'_, Daemon>,
     tab: String,
-    title: Option<String>,
+    title: String,
 ) -> CommandResult<()> {
     daemon.done(Command::Rename { tab, title }).await
 }

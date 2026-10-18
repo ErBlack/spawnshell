@@ -508,12 +508,50 @@ fn a_tab_title_set_from_the_cli_survives_restarts_and_resets() {
     let mut gui = env.connect("gui");
     assert_eq!(gui.tabs()[0]["title"], "build", "lost in a restart");
 
-    assert!(succeeded(&env.spawnshell(&["reset-title", "--tab", &tab])));
+    assert!(succeeded(&env.spawnshell(&["rename", "  ", "--tab", &tab])));
     assert!(gui.tabs()[0]["title"].is_null());
-    for rejected in [vec![], vec!["  "], vec!["a\tb"]] {
+    for rejected in [vec![], vec!["a\tb"]] {
         let mut args = vec!["rename", "--tab", &tab];
         args.extend(rejected);
         assert!(!env.spawnshell(&args).status.success(), "accepted {args:?}");
+    }
+}
+
+#[test]
+fn a_restore_command_set_from_the_cli_runs_when_the_tab_comes_back() {
+    let env = Env::new("restore");
+    let _daemon = env.start();
+    let mut gui = env.connect("gui");
+    let pinned = new_tab(&mut gui, true);
+    let loose = new_tab(&mut gui, false);
+    let restore = "echo RESTORED$((6*7))";
+
+    assert!(succeeded(
+        &env.spawnshell(&["restore", restore, "--tab", &pinned])
+    ));
+    let output = env.spawnshell(&["restore", "--tab", &pinned]);
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        format!("{restore}\n")
+    );
+    assert_eq!(env.session()["tabs"][0]["restore"], restore);
+
+    gui.call(&json!({"command": "restart", "tab": pinned}));
+    gui.wait_for("RESTORED42");
+
+    assert!(succeeded(
+        &env.spawnshell(&["restore", "", "--tab", &pinned])
+    ));
+    assert!(env.session()["tabs"][0]["restore"].is_null());
+    for rejected in [vec!["echo x"], vec![]] {
+        let mut args = vec!["restore", "--tab", &loose];
+        args.extend(rejected);
+        let output = env.spawnshell(&args);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("only pinned tabs"),
+            "{args:?} printed {stderr:?}"
+        );
     }
 }
 

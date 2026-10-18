@@ -178,7 +178,14 @@ pub enum Command {
     },
     Rename {
         tab: String,
-        title: Option<String>,
+        title: String,
+    },
+    Restore {
+        tab: String,
+    },
+    SetRestore {
+        tab: String,
+        restore: String,
     },
     Resize {
         rows: u16,
@@ -234,6 +241,9 @@ pub enum Reply {
     },
     Tab {
         tab: String,
+    },
+    Restore {
+        restore: Option<String>,
     },
     Config {
         config: Config,

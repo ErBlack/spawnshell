@@ -137,8 +137,8 @@ export class TabManager {
     );
   }
 
-  rename(id: string, title: string | null) {
-    const renaming = { title, settled: false };
+  rename(id: string, title: string) {
+    const renaming = { title: title || null, settled: false };
     this.renaming.set(id, renaming);
     this.onChange();
     commands.tabRename(id, title).then(
