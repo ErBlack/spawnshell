@@ -159,7 +159,7 @@ fn app() -> tauri::Result<()> {
         })
         .on_menu_event(|app, event| client::menu::handle(app, event.id().0.as_str()))
         .on_window_event(|window, event| match event {
-            tauri::WindowEvent::Focused(false) => window::hide(window.app_handle()),
+            tauri::WindowEvent::Focused(false) => window::blurred(window.app_handle()),
             tauri::WindowEvent::CloseRequested { api, .. } => {
                 api.prevent_close();
                 window::hide(window.app_handle());

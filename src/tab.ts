@@ -4,7 +4,7 @@ import { TabStream } from "./tab-stream.ts";
 import type { Terminals } from "./terminals.ts";
 
 export class Tab {
-  readonly title: CommandTitle;
+  readonly commandTitle: CommandTitle;
   dirty = false;
   private readonly element = document.createElement("div");
   private readonly terminals: Terminals;
@@ -23,7 +23,7 @@ export class Tab {
     container.append(this.element);
     this.terminal = terminals.create(this.element);
     this.element.hidden = true;
-    this.title = new CommandTitle(this.terminal, onChange);
+    this.commandTitle = new CommandTitle(this.terminal, onChange);
     this.stream = new TabStream(tab, this.terminal, () => {
       if (this.visible || this.dirty) return;
       this.dirty = true;

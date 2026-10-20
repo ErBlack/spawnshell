@@ -380,6 +380,32 @@ fn quitting_the_gui_closes_unpinned_tabs_and_keeps_pinned_ones() {
 }
 
 #[test]
+fn a_pinned_tab_closes_only_with_force() {
+    let env = Env::new("close");
+    let _daemon = env.start();
+    let mut gui = env.connect("gui");
+    let pinned = new_tab(&mut gui, true);
+    let loose = new_tab(&mut gui, false);
+
+    let refused = gui
+        .try_call(&json!({"command": "close", "tab": pinned}))
+        .unwrap();
+    assert_eq!(refused, json!({"Err": "pinned"}));
+    let output = env.spawnshell(&["close", "--tab", &pinned]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("--force"),
+        "closing a pinned tab printed {stderr:?}"
+    );
+    assert!(succeeded(&env.spawnshell(&["close", "--tab", &loose])));
+    assert_eq!(gui.tabs().len(), 1);
+    assert!(succeeded(
+        &env.spawnshell(&["close", "--force", "--tab", &pinned])
+    ));
+    assert!(gui.tabs().is_empty());
+}
+
+#[test]
 fn a_pinned_tab_whose_shell_exits_stays_and_restarts() {
     let env = Env::new("restart");
     let _daemon = env.start();

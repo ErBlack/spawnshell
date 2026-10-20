@@ -20,10 +20,6 @@ interface Editor {
   finish(save: boolean): void;
 }
 
-function label({ info, tab, title }: TabEntry): string {
-  return title || tab.title.text || info.process || "";
-}
-
 function fill(group: HTMLElement, buttons: HTMLElement[]) {
   const same =
     group.children.length === buttons.length &&
@@ -83,7 +79,7 @@ export class Tabs {
     const entry = this.entries.find(({ info }) => info.id === id);
     if (!entry || this.editor?.id === id) return;
     this.editor?.finish(true);
-    const initial = label(entry);
+    const initial = entry.label;
     const input = document.createElement("input");
     input.className = "tab tab-rename";
     input.value = initial;
@@ -116,15 +112,13 @@ export class Tabs {
   }
 
   private draw() {
-    for (const entry of this.entries) {
-      const { info, tab } = entry;
+    for (const { info, tab, label } of this.entries) {
       const { root, caption, dot } = this.button(info.id);
-      const text = label(entry);
       if (info.id === this.active) root.setAttribute("aria-current", "true");
       else root.removeAttribute("aria-current");
       root.toggleAttribute("data-stopped", !info.alive);
       root.title = info.cwd ? `${info.process ?? ""} — ${info.cwd}` : "";
-      if (caption.textContent !== text) caption.textContent = text;
+      if (caption.textContent !== label) caption.textContent = label;
       dot.hidden = !tab.dirty || info.id === this.active;
     }
 

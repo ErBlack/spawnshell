@@ -37,7 +37,13 @@ enum Action {
         pinned: bool,
     },
     /// Close a tab
-    Close(Target),
+    Close {
+        /// Close a pinned tab too
+        #[arg(long)]
+        force: bool,
+        #[command(flatten)]
+        target: Target,
+    },
     /// Switch to a tab
     Select(Target),
     /// Pin a tab
@@ -183,7 +189,17 @@ fn execute(cli: Cli, out: &mut impl Write) -> Result<()> {
             return Ok(());
         }
         Action::New { pinned } => Command::New { pinned },
-        Action::Close(Target { tab }) => Command::Close { tab },
+        Action::Close {
+            force,
+            target: Target { tab },
+        } => {
+            return match client.call(&Command::Close { tab, force }) {
+                Err(error) if error.downcast_ref::<Failure>() == Some(&Failure::Pinned) => {
+                    bail!("the tab is pinned, pass --force to close it")
+                }
+                result => result.map(|_| ()),
+            };
+        }
         Action::Select(Target { tab }) => Command::Select { tab },
         Action::Pin(Target { tab }) => Command::Place {
             tab,

@@ -10,7 +10,9 @@ use objc2::rc::Retained;
 use objc2_app_kit::NSWindow;
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_specta::Event as _;
+use tokio::sync::oneshot;
 
 use crate::gui_config::GuiConfig;
 use crate::native;
@@ -20,6 +22,7 @@ const MAIN: &str = "main";
 #[derive(Default)]
 pub struct WindowState {
     open: AtomicBool,
+    confirming: AtomicBool,
 }
 
 #[derive(Clone, Serialize, specta::Type, tauri_specta::Event)]
@@ -49,6 +52,12 @@ fn height(app: &AppHandle) -> u32 {
 
 fn opened(app: &AppHandle) -> bool {
     app.state::<WindowState>().open.load(Ordering::Relaxed)
+}
+
+fn confirming(app: &AppHandle) -> bool {
+    app.state::<WindowState>()
+        .confirming
+        .load(Ordering::Relaxed)
 }
 
 fn show_now(app: &AppHandle) {
@@ -82,6 +91,43 @@ pub fn show(app: &AppHandle) {
 
 pub fn hide(app: &AppHandle) {
     on_main_thread(app, hide_now);
+}
+
+pub fn blurred(app: &AppHandle) {
+    on_main_thread(app, |app| {
+        if !confirming(app) {
+            hide_now(app);
+        }
+    });
+}
+
+pub async fn confirm(app: &AppHandle, title: &str, message: &str, action: &str) -> bool {
+    let state = app.state::<WindowState>();
+    if state.confirming.swap(true, Ordering::Relaxed) {
+        return false;
+    }
+    let (answer, answered) = oneshot::channel();
+    app.dialog()
+        .message(message)
+        .title(title)
+        .kind(MessageDialogKind::Warning)
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            action.to_string(),
+            "Cancel".to_string(),
+        ))
+        .show(move |confirmed| {
+            let _ = answer.send(confirmed);
+        });
+    let confirmed = answered.await.unwrap_or(false);
+    state.confirming.store(false, Ordering::Relaxed);
+    on_main_thread(app, |app| {
+        if opened(app)
+            && let Some(ns_window) = main_window(app)
+        {
+            native::show(&ns_window);
+        }
+    });
+    confirmed
 }
 
 pub fn toggle(app: &AppHandle) {

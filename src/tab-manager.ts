@@ -10,6 +10,7 @@ export interface TabEntry {
   info: TabInfo;
   tab: Tab;
   title: string | null;
+  label: string;
 }
 
 interface Renaming {
@@ -51,9 +52,11 @@ export class TabManager {
   entries(): TabEntry[] {
     return this.selection.items.flatMap((info) => {
       const tab = this.tabs.get(info.id);
+      if (!tab) return [];
       const renaming = this.renaming.get(info.id);
       const title = renaming ? renaming.title : info.title;
-      return tab ? [{ info, tab, title }] : [];
+      const label = title || tab.commandTitle.text || info.process || "";
+      return [{ info, tab, title, label }];
     });
   }
 
@@ -122,7 +125,8 @@ export class TabManager {
   }
 
   close(id: string) {
-    reportFailure(commands.tabClose(id));
+    const entry = this.entries().find(({ info }) => info.id === id);
+    reportFailure(commands.tabClose(id, entry?.label ?? ""));
   }
 
   closeActive() {

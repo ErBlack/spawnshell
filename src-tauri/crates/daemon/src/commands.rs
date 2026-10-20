@@ -44,9 +44,10 @@ impl Hub {
         Ok(id)
     }
 
-    fn close(&self, id: &str) -> Result<()> {
+    fn close(&self, id: &str, force: bool) -> Result<()> {
         let mut state = self.state.lock();
         let index = state.find(id)?;
+        ensure!(force || !state.tabs[index].pinned, Failure::Pinned);
         let tab = state.tabs.remove(index);
         let empty = state.tabs.is_empty();
         drop(state);
@@ -306,7 +307,7 @@ impl Hub {
                 self.notify(Event::Select { tab: tab.clone() });
                 Ok(Reply::Tab { tab })
             }
-            Command::Close { tab } => self.close(&tab).map(|()| Reply::Done),
+            Command::Close { tab, force } => self.close(&tab, force).map(|()| Reply::Done),
             Command::Select { tab } => {
                 self.require_gui()?;
                 self.state.lock().find(&tab)?;

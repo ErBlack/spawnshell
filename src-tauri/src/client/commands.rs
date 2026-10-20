@@ -4,14 +4,15 @@
 )]
 
 use anyhow::anyhow;
-use protocol::{Command, Frame, Reply, TabInfo};
+use protocol::{Command, Failure, Frame, Reply, TabInfo};
 use serde::{Serialize, Serializer};
 use specta::Type;
 use specta::datatype::DataType;
-use tauri::State;
 use tauri::ipc::Channel;
+use tauri::{AppHandle, State};
 
 use super::{Daemon, Output, Route};
+use crate::window;
 
 pub struct CommandError(anyhow::Error);
 
@@ -54,8 +55,37 @@ pub async fn tab_new(daemon: State<'_, Daemon>) -> CommandResult<()> {
 
 #[tauri::command]
 #[specta::specta]
-pub async fn tab_close(daemon: State<'_, Daemon>, tab: String) -> CommandResult<()> {
-    daemon.done(Command::Close { tab }).await
+pub async fn tab_close(
+    app: AppHandle,
+    daemon: State<'_, Daemon>,
+    tab: String,
+    label: String,
+) -> CommandResult<()> {
+    let close = |force| Command::Close {
+        tab: tab.clone(),
+        force,
+    };
+    match daemon.request(close(false)).await {
+        Err(error) if error.downcast_ref::<Failure>() == Some(&Failure::Pinned) => {
+            let title = if label.is_empty() {
+                "Close the pinned tab?".to_string()
+            } else {
+                format!("Close the pinned tab “{label}”?")
+            };
+            let confirmed = window::confirm(
+                &app,
+                &title,
+                "Its processes will stop, and it won't come back when Spawnshell restarts.",
+                "Close",
+            )
+            .await;
+            if confirmed {
+                daemon.done(close(true)).await?;
+            }
+            Ok(())
+        }
+        result => result.map(|_| ()).map_err(Into::into),
+    }
 }
 
 #[tauri::command]
