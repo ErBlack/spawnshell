@@ -145,6 +145,7 @@ fn app() -> tauri::Result<()> {
                     .show(|_| {});
             }
             window::watch_screen_changes(app.handle());
+            window::watch_deactivation(app.handle());
 
             match client::Daemon::connect(app.handle()) {
                 Ok(daemon) => {
@@ -158,13 +159,11 @@ fn app() -> tauri::Result<()> {
             Ok(())
         })
         .on_menu_event(|app, event| client::menu::handle(app, event.id().0.as_str()))
-        .on_window_event(|window, event| match event {
-            tauri::WindowEvent::Focused(false) => window::blurred(window.app_handle()),
-            tauri::WindowEvent::CloseRequested { api, .. } => {
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 window::hide(window.app_handle());
             }
-            _ => {}
         })
         .run(tauri::generate_context!())
 }

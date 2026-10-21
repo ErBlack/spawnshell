@@ -3,8 +3,8 @@ use objc2::rc::Retained;
 use objc2::runtime::{AnyClass, NSObjectProtocol};
 use objc2::{MainThreadMarker, MainThreadOnly, Message};
 use objc2_app_kit::{
-    NSEvent, NSScreen, NSStatusWindowLevel, NSView, NSWindow, NSWindowCollectionBehavior,
-    NSWindowStyleMask,
+    NSApplication, NSEvent, NSModalPanelWindowLevel, NSScreen, NSView, NSWindow,
+    NSWindowCollectionBehavior,
 };
 use objc2_foundation::{NSMouseInRect, NSPoint, NSRect, NSSize};
 use tauri_nspanel::WebviewWindowExt;
@@ -22,8 +22,7 @@ mod panel {
 
 pub fn make_panel(window: &tauri::WebviewWindow) -> Result<()> {
     let panel = window.to_panel::<panel::SpawnshellPanel>()?;
-    panel.set_style_mask(NSWindowStyleMask::NonactivatingPanel)?;
-    panel.set_level(NSStatusWindowLevel as i64);
+    panel.set_level(NSModalPanelWindowLevel as i64);
     panel.set_collection_behavior(
         NSWindowCollectionBehavior::CanJoinAllSpaces
             | NSWindowCollectionBehavior::FullScreenAuxiliary,
@@ -92,6 +91,7 @@ pub fn show(window: &NSWindow) {
             .unwrap_or(content);
         window.makeFirstResponder(Some(&target));
     }
+    NSApplication::sharedApplication(window.mtm()).activate();
     window.orderFrontRegardless();
     window.makeKeyWindow();
 }
@@ -107,4 +107,5 @@ fn webview_in(view: &NSView, class: &AnyClass) -> Option<Retained<NSView>> {
 
 pub fn order_out(window: &NSWindow) {
     window.orderOut(None);
+    NSApplication::sharedApplication(window.mtm()).hide(None);
 }
