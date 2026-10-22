@@ -16,6 +16,8 @@ pub struct TabEntry {
     pub cwd: Option<PathBuf>,
     pub restore: Option<String>,
     pub title: Option<String>,
+    #[serde(default)]
+    pub notified: bool,
 }
 
 pub fn new_id() -> String {
@@ -157,6 +159,7 @@ mod tests {
             cwd: Some(PathBuf::from("/tmp")),
             restore: restore.map(str::to_string),
             title: None,
+            notified: false,
         }
     }
 
@@ -164,10 +167,14 @@ mod tests {
     fn round_trips_tabs_through_a_fresh_directory() {
         let dir = scratch("session");
         let path = dir.join("nested").join("session.json");
+        let second = TabEntry {
+            notified: true,
+            ..tab("b", None)
+        };
         let bytes = encode(&Session {
             size: Some(Size::new(50, 200)),
             selected: Some("b".into()),
-            tabs: vec![tab("a", Some("claude --resume x")), tab("b", None)],
+            tabs: vec![tab("a", Some("claude --resume x")), second],
         })
         .unwrap();
         files::write(&path, &bytes).unwrap();
@@ -180,7 +187,9 @@ mod tests {
         assert_eq!(loaded.len(), 2);
         assert_eq!(loaded[0].id, "a");
         assert_eq!(loaded[0].restore.as_deref(), Some("claude --resume x"));
+        assert!(!loaded[0].notified);
         assert!(loaded[1].restore.is_none());
+        assert!(loaded[1].notified);
         assert!(!path.with_extension("json.tmp").exists());
     }
 
@@ -232,5 +241,6 @@ mod tests {
         assert!(!entry.id.is_empty());
         assert!(entry.cwd.is_none());
         assert_eq!(entry.restore.as_deref(), Some("echo hi"));
+        assert!(!entry.notified);
     }
 }

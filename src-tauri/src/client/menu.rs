@@ -2,11 +2,13 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::menu::MenuBuilder;
 use tauri::{AppHandle, Manager};
+use tauri_plugin_dialog::DialogExt;
 use tauri_specta::Event as _;
 
 use super::Daemon;
 use super::commands::CommandResult;
 
+const INSTALL: &str = "app:install";
 const QUIT: &str = "app:quit";
 const STOP: &str = "app:stop";
 
@@ -33,6 +35,8 @@ impl TabMenuChosen {
 pub fn handle(app: &AppHandle, id: &str) {
     if let Some(chosen) = TabMenuChosen::parse(id) {
         let _ = chosen.emit(app);
+    } else if id == INSTALL {
+        install(app);
     } else if id == QUIT {
         app.exit(0);
     } else if id == STOP
@@ -40,6 +44,17 @@ pub fn handle(app: &AppHandle, id: &str) {
     {
         daemon.stop(app);
     }
+}
+
+fn install(app: &AppHandle) {
+    let message = match cli::install::install() {
+        Ok(link) => format!("The spawnshell command is installed as {}.", link.display()),
+        Err(error) => format!("Couldn't install the spawnshell command: {error:#}"),
+    };
+    app.dialog()
+        .message(message)
+        .title("Spawnshell")
+        .show(|_| {});
 }
 
 #[tauri::command]
@@ -69,6 +84,8 @@ pub fn show_tab_menu(
     } else {
         MenuBuilder::new(&window)
             .text(TabMenuChosen::New.id(), "New Tab")
+            .separator()
+            .text(INSTALL, "Install Command Line Tool…")
             .separator()
             .text(QUIT, "Quit Spawnshell")
             .text(STOP, "Quit and Stop Pinned Tabs")

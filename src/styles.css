@@ -115,7 +115,7 @@ body {
   opacity: 0.6;
 }
 
-.tab-dirty {
+.tab-notified {
   flex: 0 0 auto;
   inline-size: 6px;
   block-size: 6px;

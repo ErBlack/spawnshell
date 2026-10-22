@@ -6,6 +6,7 @@ mod hub;
 mod io;
 mod launch;
 mod modes;
+mod notifications;
 mod output;
 mod paths;
 mod process;
@@ -31,6 +32,7 @@ use anyhow::{Context, Result, ensure};
 use self::flow::Wanted;
 use self::hub::{Hub, Restored, Tab};
 use self::launch::Launch;
+use self::notifications::TabNotification;
 use self::process::Ownership;
 use self::pty::Size;
 use self::save::{restore_history, set_aside};
@@ -132,7 +134,10 @@ fn take_over_previous_data(dir: &Path) -> Result<()> {
         .with_context(|| format!("can't move {} to {}", previous.display(), dir.display()))
 }
 
-fn fresh(exit: mpsc::Sender<Exit>) -> Result<Option<Arc<Hub>>> {
+fn fresh(
+    exit: mpsc::Sender<Exit>,
+    notification: mpsc::Sender<TabNotification>,
+) -> Result<Option<Arc<Hub>>> {
     let dir = paths::data_dir()?;
     take_over_previous_data(&dir)?;
     fs::create_dir_all(&dir).with_context(|| format!("can't create {}", dir.display()))?;
@@ -164,7 +169,7 @@ fn fresh(exit: mpsc::Sender<Exit>) -> Result<Option<Arc<Hub>>> {
         size,
         active: saved.selected,
     };
-    let hub = Hub::new(listener, lock_file, restored, exit);
+    let hub = Hub::new(listener, lock_file, restored, exit, notification);
     for (entry, history) in saved.tabs.into_iter().zip(histories) {
         let output = hub.new_output(&entry.id, size);
         let launch = Launch {
@@ -196,10 +201,11 @@ fn fresh(exit: mpsc::Sender<Exit>) -> Result<Option<Arc<Hub>>> {
 pub fn run(adopting: bool) -> ExitCode {
     let signals = block_signals();
     let (exit, exits) = mpsc::channel();
+    let (notification, notifications) = mpsc::channel();
     let started = if adopting {
-        handoff::adopt(exit.clone()).map(Some)
+        handoff::adopt(exit.clone(), notification).map(Some)
     } else {
-        fresh(exit.clone())
+        fresh(exit.clone(), notification)
     };
     let hub = match started {
         Ok(Some(hub)) => hub,
@@ -230,6 +236,7 @@ pub fn run(adopting: bool) -> ExitCode {
         }
     });
     hub.watch_tabs();
+    hub.watch_notifications(notifications);
     let acceptor = Arc::clone(&hub);
     thread::spawn(move || acceptor.accept());
 

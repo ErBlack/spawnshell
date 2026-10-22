@@ -13,7 +13,8 @@ use protocol::{Event, Frame, FromDaemon, TabInfo};
 
 use super::flow::Wanted;
 use super::launch::Shell;
-use super::output::{Output, Sink};
+use super::notifications::TabNotification;
+use super::output::{Output, Signal, Signals, Sink};
 use super::process::Proc;
 use super::settings::Settings;
 use super::{Exit, report};
@@ -39,6 +40,18 @@ impl Tab {
             proc: None,
             generation: 1,
         }
+    }
+
+    pub(super) fn label(&self) -> String {
+        if let Some(title) = &self.entry.title {
+            return title.clone();
+        }
+        if let Some(title) = self.output.lock().title() {
+            return title.to_string();
+        }
+        self.foreground()
+            .and_then(pty::process_name)
+            .unwrap_or_default()
     }
 
     pub(super) fn resize(&self, size: Size) {
@@ -112,6 +125,9 @@ pub(super) struct Hub {
     pub(super) saving: Mutex<()>,
     pub(super) home: Option<PathBuf>,
     pub(super) shell: Shell,
+    notification: mpsc::Sender<TabNotification>,
+    pub(super) window_open: AtomicBool,
+    pub(super) notifications_failed: AtomicBool,
 }
 
 fn display_path(path: &Path, home: Option<&Path>) -> String {
@@ -135,12 +151,45 @@ fn sink(gui: &Arc<Mutex<Option<Gui>>>, tab: &str) -> Sink {
     })
 }
 
+pub(super) fn event_frame(event: Event) -> Frame {
+    protocol::message(&FromDaemon::Event { event })
+}
+
+fn send_event(gui: &Mutex<Option<Gui>>, event: Event) -> bool {
+    match gui.lock().as_ref() {
+        Some(gui) => gui.tx.send(event_frame(event)).is_ok(),
+        None => false,
+    }
+}
+
+fn signals(
+    gui: &Arc<Mutex<Option<Gui>>>,
+    sender: &mpsc::Sender<TabNotification>,
+    tab: &str,
+) -> Signals {
+    let gui = Arc::clone(gui);
+    let sender = sender.clone();
+    let tab = tab.to_string();
+    Box::new(move |signal| {
+        let tab = tab.clone();
+        match signal {
+            Signal::Title(title) => {
+                send_event(&gui, Event::Title { tab, title });
+            }
+            Signal::Notification(notification) => {
+                let _ = sender.send((tab, notification));
+            }
+        }
+    })
+}
+
 impl Hub {
     pub(super) fn new(
         listener: UnixListener,
         lock_file: File,
         restored: Restored,
         exit: mpsc::Sender<Exit>,
+        notification: mpsc::Sender<TabNotification>,
     ) -> Arc<Self> {
         let shell = Shell::detect();
         Arc::new(Hub {
@@ -163,6 +212,9 @@ impl Hub {
             saving: Mutex::new(()),
             home: dirs::home_dir(),
             shell,
+            notification,
+            window_open: AtomicBool::new(false),
+            notifications_failed: AtomicBool::new(false),
         })
     }
 
@@ -185,17 +237,13 @@ impl Hub {
     }
 
     pub(super) fn new_output(&self, id: &str, size: Size) -> Arc<Mutex<Output>> {
-        Arc::new(Mutex::new(Output::new(size, sink(&self.gui, id))))
+        let sink = sink(&self.gui, id);
+        let signals = signals(&self.gui, &self.notification, id);
+        Arc::new(Mutex::new(Output::new(size, sink, signals)))
     }
 
     pub(super) fn notify(&self, event: Event) -> bool {
-        match self.gui.lock().as_ref() {
-            Some(gui) => gui
-                .tx
-                .send(protocol::message(&FromDaemon::Event { event }))
-                .is_ok(),
-            None => false,
-        }
+        send_event(&self.gui, event)
     }
 
     pub(super) fn require_gui(&self) -> Result<()> {
@@ -218,6 +266,7 @@ impl Hub {
                 .cwd
                 .as_deref()
                 .map(|cwd| display_path(cwd, self.home.as_deref())),
+            notified: tab.entry.notified,
         }
     }
 
@@ -294,11 +343,12 @@ impl Hub {
         if let Some(proc) = state.tabs[index].proc.take() {
             proc.finished();
         }
-        if !state.tabs[index].pinned {
-            state.tabs.remove(index);
-        }
+        let removed = (!state.tabs[index].pinned).then(|| state.tabs.remove(index));
         let empty = state.tabs.is_empty();
         drop(state);
+        if let Some(mut tab) = removed {
+            tab.dismiss_notification();
+        }
         self.changed();
         if empty {
             self.emptied();

@@ -8,7 +8,6 @@ import type { Terminals } from "./terminals.ts";
 
 export interface TabEntry {
   info: TabInfo;
-  tab: Tab;
   title: string | null;
   label: string;
 }
@@ -22,6 +21,7 @@ export class TabManager {
   private readonly selection = new TabSelection();
   private readonly tabs = new Map<string, Tab>();
   private readonly renaming = new Map<string, Renaming>();
+  private readonly titles = new Map<string, string>();
   private readonly restarting = new Set<string>();
   private readonly terminals: Terminals;
   private readonly container: HTMLElement;
@@ -50,13 +50,11 @@ export class TabManager {
   }
 
   entries(): TabEntry[] {
-    return this.selection.items.flatMap((info) => {
-      const tab = this.tabs.get(info.id);
-      if (!tab) return [];
+    return this.selection.items.map((info) => {
       const renaming = this.renaming.get(info.id);
       const title = renaming ? renaming.title : info.title;
-      const label = title || tab.commandTitle.text || info.process || "";
-      return [{ info, tab, title, label }];
+      const label = title || this.titles.get(info.id) || info.process || "";
+      return { info, title, label };
     });
   }
 
@@ -69,15 +67,13 @@ export class TabManager {
     this.selection.update(items);
     for (const { id } of items) {
       if (this.tabs.has(id)) continue;
-      this.tabs.set(
-        id,
-        new Tab(id, this.terminals, this.container, this.onChange),
-      );
+      this.tabs.set(id, new Tab(id, this.terminals, this.container));
     }
     for (const [id, tab] of this.tabs) {
       if (this.selection.find(id)) continue;
       tab.dispose();
       this.tabs.delete(id);
+      this.titles.delete(id);
     }
     for (const [id, renaming] of this.renaming) {
       const info = this.selection.find(id);
@@ -92,7 +88,14 @@ export class TabManager {
     for (const tab of this.tabs.values()) tab.dispose();
     this.tabs.clear();
     this.renaming.clear();
+    this.titles.clear();
     this.selection.clear();
+    this.onChange();
+  }
+
+  setTitle(id: string, title: string | null) {
+    if (title) this.titles.set(id, title);
+    else this.titles.delete(id);
     this.onChange();
   }
 

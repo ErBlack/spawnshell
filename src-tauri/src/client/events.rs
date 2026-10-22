@@ -9,6 +9,12 @@ pub struct TabsChanged(pub Vec<TabInfo>);
 pub struct TabSelected(pub String);
 
 #[derive(Clone, Serialize, Type, tauri_specta::Event)]
+pub struct TabTitleChanged {
+    pub tab: String,
+    pub title: Option<String>,
+}
+
+#[derive(Clone, Serialize, Type, tauri_specta::Event)]
 pub struct Reconnected;
 
 #[derive(Clone, Serialize, Type, tauri_specta::Event)]

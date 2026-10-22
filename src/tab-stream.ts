@@ -12,17 +12,15 @@ const encoder = new TextEncoder();
 export class TabStream {
   private readonly tab: string;
   private readonly terminal: Terminal;
-  private readonly onOutput: () => void;
   private queued = 0;
   private paused = false;
   private discarded = 0;
   private replaying = 0;
   private closed = false;
 
-  constructor(tab: string, terminal: Terminal, onOutput: () => void) {
+  constructor(tab: string, terminal: Terminal) {
     this.tab = tab;
     this.terminal = terminal;
-    this.onOutput = onOutput;
     terminal.onData((data) => this.write(encoder.encode(data)));
     terminal.onBinary((data) =>
       this.write(Uint8Array.from(data, (char) => char.charCodeAt(0))),
@@ -65,7 +63,6 @@ export class TabStream {
       });
       if (this.queued > HIGH_WATER) this.setPaused(true);
     }
-    this.onOutput();
   }
 
   private written(length: number) {

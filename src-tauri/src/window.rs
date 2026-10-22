@@ -18,6 +18,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Manager};
 use tauri_specta::Event as _;
 
+use crate::client::Daemon;
 use crate::gui_config::GuiConfig;
 use crate::native;
 
@@ -69,6 +70,7 @@ fn show_now(app: &AppHandle) {
         .store(true, Ordering::Relaxed);
     native::place_at_cursor(&ns_window, height(app));
     native::show(&ns_window);
+    report_window_open(app, true);
     let _ = WindowShown.emit(app);
 }
 
@@ -78,7 +80,14 @@ fn hide_now(app: &AppHandle) {
         .open
         .swap(false, Ordering::Relaxed)
     {
+        report_window_open(app, false);
         let _ = WindowHidden.emit(app);
+    }
+}
+
+fn report_window_open(app: &AppHandle, open: bool) {
+    if let Some(daemon) = app.try_state::<Daemon>() {
+        daemon.set_window_open(open);
     }
 }
 

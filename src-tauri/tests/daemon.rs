@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-const BIN: &str = env!("CARGO_BIN_EXE_Spawnshell");
+const BIN: &str = env!("CARGO_BIN_EXE_spawnshell");
 const DATA_DIR: &str = "Library/Application Support/com.erblack.spawnshell-terminal";
 const PATIENCE: Duration = Duration::from_secs(10);
 
@@ -519,7 +519,7 @@ fn a_tab_title_set_from_the_cli_survives_restarts_and_resets() {
     ));
     assert_eq!(gui.tabs()[0]["title"], "build");
     let output = env.spawnshell(&["list"]);
-    assert!(String::from_utf8_lossy(&output.stdout).ends_with("\tbuild\n"));
+    assert!(String::from_utf8_lossy(&output.stdout).ends_with("\tbuild\t-\n"));
     assert_eq!(env.session()["tabs"][0]["title"], "build");
 
     let upgrade = gui.try_call(&json!({"command": "upgrade", "exe": BIN}));
@@ -711,6 +711,142 @@ fn cli_needs_a_tab_outside_spawnshell_and_reports_a_missing_daemon() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("--tab"));
 
     assert!(succeeded(&env.spawnshell(&["list"])));
+}
+
+fn run(client: &mut Client, tab: &str, command: &str, marker: &str) {
+    client.type_text(tab, &format!("{command}; echo {marker}':'\n"));
+    client.wait_for(&format!("{marker}:"));
+}
+
+fn flagged(client: &mut Client, tab: &str, flag: &str) -> bool {
+    client
+        .tabs()
+        .iter()
+        .any(|info| info["id"] == tab && info[flag] == true)
+}
+
+fn notified(client: &mut Client, tab: &str) -> bool {
+    flagged(client, tab, "notified")
+}
+
+#[test]
+fn a_notification_marks_its_tab_until_it_is_seen() {
+    let env = Env::new("notify");
+    let _daemon = env.start();
+    let mut gui = env.connect("gui");
+    let first = new_tab(&mut gui, false);
+    let second = new_tab(&mut gui, false);
+    gui.call(&json!({"command": "activate", "tab": first}));
+    gui.call(&json!({"command": "set_window_open", "open": true}));
+
+    run(&mut gui, &first, r"printf '\033]9;in sight\007'", "active");
+    run(
+        &mut gui,
+        &second,
+        r"printf '\033]777;notify;Build;done\007'",
+        "background",
+    );
+    assert!(eventually(PATIENCE, || notified(&mut gui, &second)));
+    assert!(!notified(&mut gui, &first), "the tab in sight was notified");
+
+    assert!(succeeded(&env.spawnshell(&["select", "--tab", &second])));
+    assert!(!notified(&mut gui, &second));
+    assert!(flagged(&mut gui, &second, "active"));
+
+    gui.call(&json!({"command": "set_window_open", "open": false}));
+    run(&mut gui, &second, r"printf '\033]9;hidden\007'", "hidden");
+    assert!(eventually(PATIENCE, || notified(&mut gui, &second)));
+    gui.call(&json!({"command": "set_window_open", "open": true}));
+    assert!(!notified(&mut gui, &second));
+}
+
+#[test]
+fn the_cli_notifies_from_a_tab_and_the_mark_survives_upgrades_and_restarts() {
+    let env = Env::new("notify-cli");
+    let first = env.start();
+    let mut gui = env.connect("gui");
+    let tab = new_tab(&mut gui, true);
+
+    assert!(succeeded(&env.spawnshell(&[
+        "notify", "--title", "Deploy", "finished", "--tab", &tab
+    ])));
+    assert!(notified(&mut gui, &tab));
+    let output = env.spawnshell(&["list"]);
+    assert!(String::from_utf8_lossy(&output.stdout).ends_with("\tnotified\n"));
+
+    for rejected in [vec!["", "--tab", &tab], vec!["text", "--tab", "nope"]] {
+        let mut args = vec!["notify"];
+        args.extend(rejected);
+        assert!(!env.spawnshell(&args).status.success(), "accepted {args:?}");
+    }
+
+    let upgrade = gui.try_call(&json!({"command": "upgrade", "exe": BIN}));
+    assert!(upgrade.is_err() || gui.closed());
+    let mut gui = env.connect("gui");
+    assert!(notified(&mut gui, &tab), "lost in an upgrade");
+    gui.call(&json!({"command": "stop"}));
+    drop(gui);
+    drop(first);
+
+    let _second = env.start();
+    let mut gui = env.connect("gui");
+    assert!(notified(&mut gui, &tab), "lost in a restart");
+}
+
+#[test]
+fn a_restarted_tab_does_not_repeat_its_notifications() {
+    let env = Env::new("notify-restart");
+    let _daemon = env.start();
+    let mut gui = env.connect("gui");
+    let tab = new_tab(&mut gui, true);
+    run(&mut gui, &tab, r"printf '\033]9;once\007'", "once");
+    assert!(eventually(PATIENCE, || notified(&mut gui, &tab)));
+    gui.call(&json!({"command": "set_window_open", "open": true}));
+    gui.call(&json!({"command": "activate", "tab": tab}));
+    assert!(!notified(&mut gui, &tab));
+
+    gui.call(&json!({"command": "set_window_open", "open": false}));
+    gui.call(&json!({"command": "restart", "tab": tab}));
+    run(&mut gui, &tab, "true", "restarted");
+    let other = new_tab(&mut gui, false);
+    run(&mut gui, &other, r"printf '\033]9;later\007'", "later");
+    assert!(eventually(PATIENCE, || notified(&mut gui, &other)));
+    assert!(
+        !notified(&mut gui, &tab),
+        "the replayed history notified again"
+    );
+}
+
+#[test]
+fn notifications_show_again_once_the_gui_is_gone() {
+    let env = Env::new("notify-gone");
+    let _daemon = env.start();
+    let mut gui = env.connect("gui");
+    let tab = new_tab(&mut gui, true);
+    gui.call(&json!({"command": "activate", "tab": tab}));
+    gui.call(&json!({"command": "set_window_open", "open": true}));
+    drop(gui);
+
+    let mut cli = env.connect("cli");
+    assert!(eventually(PATIENCE, || {
+        assert!(succeeded(
+            &env.spawnshell(&["notify", "after", "--tab", &tab])
+        ));
+        notified(&mut cli, &tab)
+    }));
+}
+
+#[test]
+fn program_titles_reach_the_gui() {
+    let env = Env::new("titles");
+    let _daemon = env.start();
+    let mut gui = env.connect("gui");
+    let tab = new_tab(&mut gui, false);
+
+    gui.type_text(&tab, concat!(r"printf '\033]2;building\007'", "\n"));
+    let event = gui.event("title");
+    assert_eq!(event["tab"], tab.as_str());
+    assert_eq!(event["title"], "building");
 }
 
 fn previous_data_dir(env: &Env) -> PathBuf {

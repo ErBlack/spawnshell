@@ -24,7 +24,7 @@ use tauri_specta::Event as _;
 use tokio::sync::oneshot;
 
 use self::commands::CommandResult;
-use self::events::{Reconnected, TabSelected, TabsChanged, Warning};
+use self::events::{Reconnected, TabSelected, TabTitleChanged, TabsChanged, Warning};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -100,6 +100,7 @@ struct Inner {
     size: Mutex<Option<(u16, u16)>>,
     warning: Mutex<Option<String>>,
     stopping: AtomicBool,
+    window_open: AtomicBool,
 }
 
 #[derive(Clone)]
@@ -160,6 +161,8 @@ impl Daemon {
                 self.post(Command::Resize { rows, cols });
             }
             drop(size);
+            let open = self.0.window_open.load(Ordering::SeqCst);
+            self.post(Command::SetWindowOpen { open });
             let _ = Reconnected.emit(app);
         }
     }
@@ -243,6 +246,9 @@ impl Daemon {
             Event::Select { tab } => {
                 let _ = TabSelected(tab).emit(app);
             }
+            Event::Title { tab, title } => {
+                let _ = TabTitleChanged { tab, title }.emit(app);
+            }
             Event::Config { config } => crate::gui_config::apply(app, config),
             Event::Warning { message } => {
                 log::warn!("{message}");
@@ -319,6 +325,15 @@ impl Daemon {
         let mut size = self.0.size.lock();
         *size = Some((rows, cols));
         self.post(Command::Resize { rows, cols });
+    }
+
+    pub fn set_window_open(&self, open: bool) {
+        self.0.window_open.store(open, Ordering::SeqCst);
+        self.post(Command::SetWindowOpen { open });
+    }
+
+    pub fn select(&self, tab: String) {
+        self.post(Command::Select { tab });
     }
 
     pub fn stop(&self, app: &AppHandle) {

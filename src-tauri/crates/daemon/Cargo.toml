@@ -9,6 +9,7 @@ name = "daemon"
 [dependencies]
 config.workspace = true
 protocol.workspace = true
+notifier.workspace = true
 anyhow.workspace = true
 dirs.workspace = true
 libc.workspace = true

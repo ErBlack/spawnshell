@@ -10,6 +10,8 @@ use clap::{Args, Parser, Subcommand};
 use config::Key;
 use protocol::{Command, Connection, Failure, Reply, Role, TabInfo};
 
+pub mod install;
+
 const TIMEOUT: Duration = Duration::from_secs(15);
 const UPDATE_WAIT: Duration = Duration::from_secs(10);
 const RETRY_DELAY: Duration = Duration::from_millis(200);
@@ -23,12 +25,20 @@ const RETRY_DELAY: Duration = Duration::from_millis(200);
 )]
 struct Cli {
     #[command(subcommand)]
-    action: Action,
+    toplevel: Toplevel,
+}
+
+#[derive(Subcommand)]
+enum Toplevel {
+    #[command(flatten)]
+    Daemon(Action),
+    /// Link the spawnshell command into ~/.local/bin
+    Install,
 }
 
 #[derive(Subcommand)]
 enum Action {
-    /// List tabs: id, pinned, running, active, process, directory, title
+    /// List tabs: id, pinned, running, active, process, directory, title, notified
     List,
     /// Open a new tab
     New {
@@ -67,6 +77,16 @@ enum Action {
     /// Show or set the command a pinned tab runs when it comes back; an empty command removes it
     Restore {
         command: Option<String>,
+        #[command(flatten)]
+        target: Target,
+    },
+    /// Show a system notification from a tab; clicking it opens the tab
+    Notify {
+        #[arg(value_parser = NonEmptyStringValueParser::new())]
+        body: String,
+        /// Notification title; defaults to the tab title
+        #[arg(long)]
+        title: Option<String>,
         #[command(flatten)]
         target: Target,
     },
@@ -173,15 +193,35 @@ fn line(tab: TabInfo) -> String {
     let process = tab.process.unwrap_or_default();
     let cwd = tab.cwd.unwrap_or_default();
     let title = tab.title.unwrap_or_default();
+    let notified = if tab.notified { "notified" } else { "-" };
     format!(
-        "{}\t{pinned}\t{state}\t{active}\t{process}\t{cwd}\t{title}",
+        "{}\t{pinned}\t{state}\t{active}\t{process}\t{cwd}\t{title}\t{notified}",
         tab.id
     )
 }
 
 fn execute(cli: Cli, out: &mut impl Write) -> Result<()> {
+    match cli.toplevel {
+        Toplevel::Daemon(action) => send(action, out),
+        Toplevel::Install => {
+            let link = install::install()?;
+            writeln!(out, "installed {}", link.display())?;
+            if let Some(dir) = link.parent()
+                && !install::in_path(&std::env::var_os("PATH").unwrap_or_default(), dir)
+            {
+                eprintln!(
+                    "spawnshell: {} is not in PATH, add it to run spawnshell by name",
+                    dir.display()
+                );
+            }
+            Ok(())
+        }
+    }
+}
+
+fn send(action: Action, out: &mut impl Write) -> Result<()> {
     let mut client = Client::open()?;
-    let command = match cli.action {
+    let command = match action {
         Action::List => {
             for tab in client.tabs()? {
                 writeln!(out, "{}", line(tab))?;
@@ -240,6 +280,11 @@ fn execute(cli: Cli, out: &mut impl Write) -> Result<()> {
             }
             return Ok(());
         }
+        Action::Notify {
+            body,
+            title,
+            target: Target { tab },
+        } => Command::Notify { tab, title, body },
         Action::Show => Command::Show,
         Action::Hide => Command::Hide,
         Action::Toggle => Command::Toggle,

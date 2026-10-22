@@ -64,6 +64,9 @@ async function main() {
   const unlisteners = await Promise.all([
     events.tabsChanged.listen(({ payload }) => manager.update(payload)),
     events.tabSelected.listen(({ payload }) => manager.select(payload)),
+    events.tabTitleChanged.listen(({ payload }) =>
+      manager.setTitle(payload.tab, payload.title),
+    ),
     events.reconnected.listen(() => {
       manager.clear();
       manager

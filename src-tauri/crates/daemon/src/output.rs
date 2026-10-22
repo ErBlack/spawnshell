@@ -1,6 +1,7 @@
 use protocol::HISTORY_LINES;
 
-use super::modes::Modes;
+use super::modes::{Modes, ProgramTitle};
+use super::notifications::Notification;
 use crate::pty::Size;
 
 const HISTORY_BYTES: usize = 16 * 1024 * 1024;
@@ -17,21 +18,30 @@ fn newlines(bytes: &[u8]) -> usize {
 
 pub(super) type Sink = Box<dyn FnMut(&[u8]) + Send>;
 
+pub(super) enum Signal {
+    Title(Option<String>),
+    Notification(Notification),
+}
+
+pub(super) type Signals = Box<dyn FnMut(Signal) + Send>;
+
 pub(super) struct Output {
     pub(super) parser: vt100::Parser,
     modes: Modes,
     sink: Sink,
+    signals: Signals,
     history: Vec<u8>,
     lines: usize,
     dirty: bool,
 }
 
 impl Output {
-    pub(super) fn new(size: Size, sink: Sink) -> Self {
+    pub(super) fn new(size: Size, sink: Sink, signals: Signals) -> Self {
         Output {
             parser: vt100::Parser::new(size.rows, size.cols, 0),
             modes: Modes::new(size.rows),
             sink,
+            signals,
             history: Vec::new(),
             lines: 0,
             dirty: false,
@@ -43,16 +53,28 @@ impl Output {
     }
 
     pub(super) fn emit(&mut self, batch: &[u8]) {
-        self.consume(batch);
+        self.feed(batch);
+        for notification in self.modes.take_notifications() {
+            (self.signals)(Signal::Notification(notification));
+        }
         (self.sink)(batch);
     }
 
     pub(super) fn consume(&mut self, batch: &[u8]) {
+        self.feed(batch);
+        self.modes.take_notifications();
+    }
+
+    fn feed(&mut self, batch: &[u8]) {
         let was_alternate = self.alternate();
         self.parser.process(batch);
         self.modes.process(batch);
         if !was_alternate || !self.alternate() {
             self.record(batch);
+        }
+        if self.modes.title_changed() {
+            let title = self.title().map(str::to_string);
+            (self.signals)(Signal::Title(title));
         }
     }
 
@@ -79,6 +101,19 @@ impl Output {
 
     pub(super) fn mute(&mut self) {
         self.sink = Box::new(|_| {});
+        self.signals = Box::new(|_| {});
+    }
+
+    pub(super) fn title(&self) -> Option<&str> {
+        self.modes.title()
+    }
+
+    pub(super) fn program_title(&self) -> ProgramTitle {
+        self.modes.program_title()
+    }
+
+    pub(super) fn restore_program_title(&mut self, title: ProgramTitle) {
+        self.modes.restore_program_title(title);
     }
 
     pub(super) fn history(&self) -> &[u8] {
@@ -157,10 +192,71 @@ impl Output {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use parking_lot::Mutex;
+
     use super::*;
 
     fn quiet() -> Output {
-        Output::new(Size::new(24, 80), Box::new(|_| {}))
+        Output::new(Size::new(24, 80), Box::new(|_| {}), Box::new(|_| {}))
+    }
+
+    #[derive(Default)]
+    struct Signalled {
+        titles: Vec<Option<String>>,
+        notifications: Vec<Notification>,
+    }
+
+    fn signalling() -> (Output, Arc<Mutex<Signalled>>) {
+        let signalled = Arc::new(Mutex::new(Signalled::default()));
+        let store = Arc::clone(&signalled);
+        let output = Output::new(
+            Size::new(24, 80),
+            Box::new(|_| {}),
+            Box::new(move |signal| {
+                let mut store = store.lock();
+                match signal {
+                    Signal::Title(title) => store.titles.push(title),
+                    Signal::Notification(notification) => store.notifications.push(notification),
+                }
+            }),
+        );
+        (output, signalled)
+    }
+
+    #[test]
+    fn live_output_notifies_and_replayed_output_does_not() {
+        let (mut output, signalled) = signalling();
+        output.consume(b"\x1b]9;from history\x07");
+        output.emit(b"\x1b]777;notify;Live;now\x07");
+        output.consume(b"\x1b]9;replayed again\x07");
+
+        let notifications = &signalled.lock().notifications;
+        assert_eq!(notifications.len(), 1);
+        assert_eq!(notifications[0].title.as_deref(), Some("Live"));
+        assert_eq!(notifications[0].body, "now");
+    }
+
+    #[test]
+    fn title_changes_are_signalled_from_live_and_replayed_output() {
+        let (mut output, signalled) = signalling();
+        output.consume(b"\x1b]2;from history\x07");
+        output.emit(b"\x1b]2;from history\x07plain output");
+        output.emit(b"\x1b]133;C\x07\x1b]0;htop\x07\x1b]133;D\x07");
+
+        let titles = &signalled.lock().titles;
+        assert_eq!(titles, &[Some("from history".to_string()), None]);
+    }
+
+    #[test]
+    fn a_muted_output_stops_signalling() {
+        let (mut output, signalled) = signalling();
+        output.mute();
+        output.emit(b"\x1b]2;title\x07\x1b]9;after the restart began\x07");
+        let signalled = signalled.lock();
+        assert!(signalled.titles.is_empty());
+        assert!(signalled.notifications.is_empty());
     }
 
     fn replayed(bytes: &[u8]) -> vt100::Parser {
@@ -199,7 +295,7 @@ mod tests {
 
     #[test]
     fn the_screen_survives_a_narrower_window() {
-        let mut output = Output::new(Size::new(10, 40), Box::new(|_| {}));
+        let mut output = Output::new(Size::new(10, 40), Box::new(|_| {}), Box::new(|_| {}));
         for number in 0..30 {
             output.emit(format!("output line {number} with some words\r\n").as_bytes());
         }
@@ -373,5 +469,30 @@ mod tests {
 
         assert_eq!(next.modes(), first.modes());
         assert_eq!(next.modes(), "\x1b[?1004h\x1b[?25l");
+    }
+
+    fn moved(first: &Output) -> Output {
+        let mut next = quiet();
+        next.restore_modes(&first.modes());
+        next.restore_program_title(first.program_title());
+        next
+    }
+
+    #[test]
+    fn a_finished_program_title_does_not_come_back_in_the_next_process() {
+        let mut first = quiet();
+        first.emit(b"\x1b]133;C\x07\x1b]2;vim\x07\x1b]133;D\x07");
+        assert_eq!(first.title(), None);
+        assert_eq!(moved(&first).title(), None);
+    }
+
+    #[test]
+    fn a_running_program_title_moves_to_the_next_process_and_ends_there() {
+        let mut first = quiet();
+        first.emit(b"\x1b]133;C\x07\x1b]2;htop\x07");
+        let mut next = moved(&first);
+        assert_eq!(next.title(), Some("htop"));
+        next.emit(b"\x1b]133;D\x07");
+        assert_eq!(next.title(), None);
     }
 }

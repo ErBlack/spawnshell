@@ -112,14 +112,14 @@ export class Tabs {
   }
 
   private draw() {
-    for (const { info, tab, label } of this.entries) {
+    for (const { info, label } of this.entries) {
       const { root, caption, dot } = this.button(info.id);
       if (info.id === this.active) root.setAttribute("aria-current", "true");
       else root.removeAttribute("aria-current");
       root.toggleAttribute("data-stopped", !info.alive);
       root.title = info.cwd ? `${info.process ?? ""} — ${info.cwd}` : "";
       if (caption.textContent !== label) caption.textContent = label;
-      dot.hidden = !tab.dirty || info.id === this.active;
+      dot.hidden = !info.notified || info.id === this.active;
     }
 
     const roots = this.entries.map(({ info }) =>
@@ -143,7 +143,7 @@ export class Tabs {
     const caption = document.createElement("span");
     caption.className = "tab-title";
     const dot = document.createElement("span");
-    dot.className = "tab-dirty";
+    dot.className = "tab-notified";
     dot.hidden = true;
     root.append(caption, dot);
     root.addEventListener("mousedown", (event) => event.preventDefault());

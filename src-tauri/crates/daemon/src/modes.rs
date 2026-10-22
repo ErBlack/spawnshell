@@ -1,3 +1,7 @@
+use serde::{Deserialize, Serialize};
+
+use super::notifications::Notification;
+
 const ESC: u8 = 0x1b;
 const BEL: u8 = 0x07;
 const CAN: u8 = 0x18;
@@ -49,12 +53,44 @@ fn osc(payload: &str) -> String {
     format!("\x1b]{payload}\x07")
 }
 
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub(super) struct ProgramTitle {
+    text: String,
+    owned: bool,
+    running: bool,
+    #[serde(skip)]
+    changed: bool,
+}
+
+impl ProgramTitle {
+    fn set(&mut self, text: &str) {
+        self.changed |= self.text != text;
+        self.text = text.to_string();
+        self.owned = self.running;
+    }
+
+    fn mark(&mut self, mark: &str) {
+        if mark.starts_with('C') {
+            self.running = true;
+        }
+        if !mark.starts_with('D') {
+            return;
+        }
+        self.running = false;
+        if std::mem::take(&mut self.owned) {
+            self.set("");
+        }
+    }
+}
+
 #[derive(Default)]
 struct Log {
     changes: Vec<(Slot, String)>,
     rows: u16,
     alternate: bool,
     regions: [Option<(u16, u16)>; 2],
+    program_title: ProgramTitle,
+    notifications: Vec<Notification>,
 }
 
 impl Log {
@@ -94,8 +130,15 @@ impl Log {
             return;
         };
         let text = String::from_utf8_lossy(payload);
+        let rest = text.split_once(';').map_or("", |(_, rest)| rest);
         match command {
-            0 | 2 => self.record(Slot::Title, osc(&text)),
+            0 | 2 => {
+                self.record(Slot::Title, osc(&text));
+                self.program_title.set(rest);
+            }
+            9 => self.iterm_notification(rest),
+            133 => self.program_title.mark(rest),
+            777 => self.rxvt_notification(rest),
             4 => {
                 let parts: Vec<&[u8]> = parts.collect();
                 for pair in parts.chunks(2) {
@@ -128,6 +171,24 @@ impl Log {
             110..=112 => self.record(Slot::Color(command - 100), osc(&command.to_string())),
             _ => {}
         }
+    }
+
+    fn iterm_notification(&mut self, message: &str) {
+        let code = message.split(';').next().unwrap_or_default();
+        if !code.is_empty() && code.bytes().all(|byte| byte.is_ascii_digit()) {
+            return;
+        }
+        self.notifications.extend(Notification::new(None, message));
+    }
+
+    fn rxvt_notification(&mut self, payload: &str) {
+        let mut fields = payload.splitn(3, ';');
+        if fields.next() != Some("notify") {
+            return;
+        }
+        let title = fields.next();
+        let body = fields.next().unwrap_or_default();
+        self.notifications.extend(Notification::new(title, body));
     }
 
     fn reset(&mut self) {
@@ -379,6 +440,26 @@ impl Modes {
         }
         text.into_bytes()
     }
+
+    pub(super) fn title(&self) -> Option<&str> {
+        Some(self.log.program_title.text.as_str()).filter(|title| !title.is_empty())
+    }
+
+    pub(super) fn title_changed(&mut self) -> bool {
+        std::mem::take(&mut self.log.program_title.changed)
+    }
+
+    pub(super) fn program_title(&self) -> ProgramTitle {
+        self.log.program_title.clone()
+    }
+
+    pub(super) fn restore_program_title(&mut self, title: ProgramTitle) {
+        self.log.program_title = title;
+    }
+
+    pub(super) fn take_notifications(&mut self) -> Vec<Notification> {
+        std::mem::take(&mut self.log.notifications)
+    }
 }
 
 #[cfg(test)]
@@ -589,5 +670,72 @@ mod tests {
         assert_eq!(modes.region(true), None);
         modes.process(b"\x1b[3r");
         assert_eq!(modes.region(true).as_deref(), Some("\x1b[3;30r"));
+    }
+
+    fn notifications(bytes: &[u8]) -> Vec<Notification> {
+        let mut modes = Modes::new(24);
+        modes.process(bytes);
+        modes.take_notifications()
+    }
+
+    fn notification(title: Option<&str>, body: &str) -> Notification {
+        Notification {
+            title: title.map(str::to_string),
+            body: body.to_string(),
+        }
+    }
+
+    #[test]
+    fn notifications_come_in_both_formats() {
+        assert_eq!(
+            notifications(b"\x1b]9;Build done\x07"),
+            [notification(None, "Build done")]
+        );
+        assert_eq!(
+            notifications(b"\x1b]777;notify;Claude Code;Waiting; for you\x1b\\"),
+            [notification(Some("Claude Code"), "Waiting; for you")]
+        );
+        assert_eq!(
+            notifications(b"\x1b]777;notify;;Only a body\x07\x1b]777;notify;Only a title\x07"),
+            [
+                notification(None, "Only a body"),
+                notification(Some("Only a title"), "")
+            ]
+        );
+    }
+
+    #[test]
+    fn progress_and_other_codes_are_not_notifications() {
+        let bytes =
+            b"\x1b]9;4;1;50\x07\x1b]9;4;0;\x07\x1b]9;\x07\x1b]777;preexec\x07\x1b]777;notify;;\x07";
+        assert!(notifications(bytes).is_empty());
+    }
+
+    #[test]
+    fn a_notification_split_across_reads_arrives_once_whole() {
+        let mut modes = Modes::new(24);
+        modes.process(b"\x1b]777;notify;Ti");
+        assert!(modes.take_notifications().is_empty());
+        modes.process(b"tle;Body\x07");
+        assert_eq!(
+            modes.take_notifications(),
+            [notification(Some("Title"), "Body")]
+        );
+        assert!(modes.take_notifications().is_empty());
+    }
+
+    #[test]
+    fn a_program_title_lasts_until_its_command_ends() {
+        let mut modes = Modes::new(24);
+        modes.process(b"\x1b]2;shell\x07");
+        assert_eq!(modes.title(), Some("shell"));
+        assert!(modes.title_changed());
+        modes.process(b"\x1b]2;shell\x07");
+        assert!(!modes.title_changed());
+        modes.process(b"\x1b]133;C\x07\x1b]0;vim; notes\x07");
+        assert_eq!(modes.title(), Some("vim; notes"));
+        modes.process(b"\x1b]133;D\x07");
+        assert_eq!(modes.title(), None);
+        assert!(modes.title_changed());
     }
 }

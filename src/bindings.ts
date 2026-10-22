@@ -34,6 +34,7 @@ export const events = {
 	reconnected: makeEvent<Reconnected>("reconnected"),
 	tabMenuChosen: makeEvent<TabMenuChosen>("tab-menu-chosen"),
 	tabSelected: makeEvent<TabSelected>("tab-selected"),
+	tabTitleChanged: makeEvent<TabTitleChanged>("tab-title-changed"),
 	tabsChanged: makeEvent<TabsChanged>("tabs-changed"),
 	warning: makeEvent<Warning>("warning"),
 	windowHidden: makeEvent<WindowHidden>("window-hidden"),
@@ -56,11 +57,17 @@ export type TabInfo = {
 	title: string | null,
 	process: string | null,
 	cwd: string | null,
+	notified: boolean,
 };
 
 export type TabMenuChosen = { action: "new" } | { action: "pin"; tab: string; pinned: boolean } | { action: "rename"; tab: string } | { action: "restart"; tab: string } | { action: "close"; tab: string };
 
 export type TabSelected = string;
+
+export type TabTitleChanged = {
+	tab: string,
+	title: string | null,
+};
 
 export type TabsChanged = TabInfo[];
 

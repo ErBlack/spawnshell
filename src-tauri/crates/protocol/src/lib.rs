@@ -216,9 +216,21 @@ pub enum Command {
         key: Key,
         value: String,
     },
+    Notify {
+        tab: String,
+        title: Option<String>,
+        body: String,
+    },
+    SetWindowOpen {
+        open: bool,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, specta::Type)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each flag is an independent state of the tab"
+)]
 pub struct TabInfo {
     pub id: String,
     pub pinned: bool,
@@ -227,6 +239,7 @@ pub struct TabInfo {
     pub title: Option<String>,
     pub process: Option<String>,
     pub cwd: Option<String>,
+    pub notified: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -257,6 +270,7 @@ pub enum Reply {
 pub enum Event {
     Tabs { tabs: Vec<TabInfo> },
     Select { tab: String },
+    Title { tab: String, title: Option<String> },
     Config { config: Config },
     Warning { message: String },
     Show,

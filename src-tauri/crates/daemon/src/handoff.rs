@@ -16,6 +16,8 @@ use serde::{Deserialize, Serialize};
 use super::Exit;
 use super::flow::{Gate, Wanted};
 use super::hub::{Hub, Restored, Tab};
+use super::modes::ProgramTitle;
+use super::notifications::TabNotification;
 use super::process::Ownership;
 use super::save::restore_history;
 use crate::pty::{self, Size};
@@ -43,6 +45,7 @@ struct ManifestTab {
     alternate: bool,
     #[serde(default)]
     modes: String,
+    program_title: Option<ProgramTitle>,
     process: Option<(i32, RawFd)>,
 }
 
@@ -113,6 +116,7 @@ fn manifest_tab(tab: &Tab) -> ManifestTab {
         screen: output.screen(),
         alternate: output.alternate(),
         modes: output.modes(),
+        program_title: Some(output.program_title()),
         process: tab
             .proc
             .as_ref()
@@ -180,7 +184,10 @@ unsafe fn adopt_fd(fd: RawFd) -> io::Result<OwnedFd> {
     Ok(unsafe { OwnedFd::from_raw_fd(fd) })
 }
 
-pub(super) fn adopt(exit: mpsc::Sender<Exit>) -> Result<Arc<Hub>> {
+pub(super) fn adopt(
+    exit: mpsc::Sender<Exit>,
+    notification: mpsc::Sender<TabNotification>,
+) -> Result<Arc<Hub>> {
     let mut text = String::new();
     io::stdin().read_to_string(&mut text)?;
     let manifest: Manifest = serde_json::from_str(&text)?;
@@ -195,7 +202,7 @@ pub(super) fn adopt(exit: mpsc::Sender<Exit>) -> Result<Arc<Hub>> {
         size: manifest.size,
         active: manifest.active,
     };
-    let hub = Hub::new(listener, lock_file, restored, exit);
+    let hub = Hub::new(listener, lock_file, restored, exit, notification);
     let mut state = hub.state.lock();
     for (adopted, history) in manifest.tabs.into_iter().zip(histories) {
         let output = hub.new_output(&adopted.entry.id, manifest.size);
@@ -206,6 +213,9 @@ pub(super) fn adopt(exit: mpsc::Sender<Exit>) -> Result<Arc<Hub>> {
             }
             output.parser.process(adopted.screen.as_bytes());
             output.restore_modes(&adopted.modes);
+            if let Some(title) = adopted.program_title {
+                output.restore_program_title(title);
+            }
             output.set_history(history.unwrap_or_else(|| adopted.screen.clone().into_bytes()));
         }
         let mut tab = Tab::new(adopted.entry, adopted.pinned, output);

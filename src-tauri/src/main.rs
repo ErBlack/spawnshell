@@ -16,7 +16,6 @@ fn fail_to_start(app: &AppHandle, message: String) {
     app.dialog()
         .message(message)
         .title("Spawnshell failed to start")
-        .kind(MessageDialogKind::Error)
         .show(move |_| handle.exit(1));
 }
 
@@ -34,7 +33,6 @@ fn report_error(app: AppHandle, message: String) {
     app.dialog()
         .message(message)
         .title("Spawnshell")
-        .kind(MessageDialogKind::Error)
         .show(|_| {});
 }
 
@@ -68,6 +66,7 @@ fn bindings() -> tauri_specta::Builder<tauri::Wry> {
         .events(collect_events![
             client::events::TabsChanged,
             client::events::TabSelected,
+            client::events::TabTitleChanged,
             client::events::Reconnected,
             client::events::Warning,
             client::menu::TabMenuChosen,
@@ -109,7 +108,22 @@ fn logger() -> tauri::plugin::TauriPlugin<tauri::Wry> {
         .build()
 }
 
+fn setup_notifications(app: &AppHandle) {
+    notifier::request_permission(|granted, error| {
+        if !granted {
+            let reason = error.map(|error| format!(": {error}")).unwrap_or_default();
+            log::warn!("notifications are not allowed{reason}");
+        }
+    });
+    let app = app.clone();
+    notifier::on_click(move |tab| {
+        window::show(&app);
+        app.state::<client::Daemon>().select(tab);
+    });
+}
+
 fn app() -> tauri::Result<()> {
+    notifier::listen();
     let bindings = bindings();
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -150,6 +164,7 @@ fn app() -> tauri::Result<()> {
             match client::Daemon::connect(app.handle()) {
                 Ok(daemon) => {
                     app.manage(daemon);
+                    setup_notifications(app.handle());
                 }
                 Err(error) => {
                     log::error!("can't connect to the background process: {error:#}");

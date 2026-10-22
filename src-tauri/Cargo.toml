@@ -5,10 +5,6 @@ description = "A Quake-style drop-down terminal"
 authors = ["erblack"]
 edition = "2024"
 
-[[bin]]
-name = "Spawnshell"
-path = "src/main.rs"
-
 [workspace]
 members = ["crates/*"]
 
@@ -17,6 +13,7 @@ config = { package = "spawnshell-config", path = "crates/config" }
 protocol = { package = "spawnshell-protocol", path = "crates/protocol" }
 daemon = { package = "spawnshell-daemon", path = "crates/daemon" }
 cli = { package = "spawnshell-cli", path = "crates/cli" }
+notifier = { package = "spawnshell-notifier", path = "crates/notifier" }
 anyhow = "1.0.104"
 clap = { version = "4.6.7", features = ["derive", "env"] }
 dirs = "6"
@@ -46,6 +43,7 @@ config.workspace = true
 protocol.workspace = true
 daemon.workspace = true
 cli.workspace = true
+notifier.workspace = true
 tauri = { version = "2", features = ["macos-private-api"] }
 tauri-plugin-single-instance = "2"
 tauri-plugin-global-shortcut = "2"

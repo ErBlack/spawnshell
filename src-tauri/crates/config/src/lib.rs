@@ -17,6 +17,7 @@ pub struct Config {
     pub font_size: u32,
     pub height: u32,
     pub command: String,
+    pub notification_sound: bool,
 }
 
 impl Default for Config {
@@ -27,6 +28,7 @@ impl Default for Config {
             font_size: 16,
             height: 50,
             command: String::new(),
+            notification_sound: true,
         }
     }
 }
@@ -40,6 +42,7 @@ pub enum Key {
     FontSize,
     Height,
     Command,
+    NotificationSound,
 }
 
 impl Key {
@@ -58,6 +61,10 @@ impl Key {
             Key::FontSize => self.number(text, FONT_SIZES).map(Into::into),
             Key::Height => self.number(text, HEIGHTS).map(Into::into),
             Key::FontFamily | Key::Command => Ok(text.into()),
+            Key::NotificationSound => text
+                .parse::<bool>()
+                .map(Into::into)
+                .map_err(|_| anyhow!("{} must be true or false", self.name())),
         }
     }
 
@@ -106,6 +113,7 @@ impl Config {
             Key::FontSize => self.font_size.to_string(),
             Key::Height => self.height.to_string(),
             Key::Command => self.command.clone(),
+            Key::NotificationSound => self.notification_sound.to_string(),
         }
     }
 }
@@ -205,6 +213,17 @@ mod tests {
         let path = Path::new("config.toml");
         assert!(edit(path, "height = 70\n", Key::FontSize, "100").is_err());
         assert!(edit(path, "height = 70\n", Key::Shortcut, "Control+Nothing").is_err());
+        assert!(edit(path, "height = 70\n", Key::NotificationSound, "yes").is_err());
+    }
+
+    #[test]
+    fn notification_sound_switches_off_and_on() {
+        let path = Path::new("config.toml");
+        let (text, config) = edit(path, "", Key::NotificationSound, "false").unwrap();
+        assert!(!config.notification_sound);
+        assert_eq!(config.get(Key::NotificationSound), "false");
+        let (_, config) = edit(path, &text, Key::NotificationSound, "true").unwrap();
+        assert!(config.notification_sound);
     }
 
     #[test]

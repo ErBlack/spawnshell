@@ -181,6 +181,7 @@ mod tests {
         let output = Arc::new(Mutex::new(Output::new(
             Size::new(24, 80),
             Box::new(move |batch| for_sink.lock().extend_from_slice(batch)),
+            Box::new(|_| {}),
         )));
         let input = start_writer(&master).unwrap();
         let (done_tx, done) = mpsc::channel();

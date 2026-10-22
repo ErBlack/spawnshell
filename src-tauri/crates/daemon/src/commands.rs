@@ -8,7 +8,7 @@ use anyhow::{Result, bail, ensure};
 use protocol::{Command, Event, Failure, Frame, Reply, Role};
 
 use super::flow::Wanted;
-use super::hub::{Gui, Hub, Tab};
+use super::hub::{Gui, Hub, Tab, event_frame};
 use super::launch::{Launch, Spawned};
 use super::process::{Ownership, Proc};
 use super::{Exit, report};
@@ -34,6 +34,7 @@ impl Hub {
             cwd: Some(cwd),
             restore: None,
             title: None,
+            notified: false,
         };
         let mut tab = Tab::new(entry, pinned, output);
         self.attach_process(&mut tab, pid, master, Ownership::Child, Wanted::Run)?;
@@ -48,9 +49,10 @@ impl Hub {
         let mut state = self.state.lock();
         let index = state.find(id)?;
         ensure!(force || !state.tabs[index].pinned, Failure::Pinned);
-        let tab = state.tabs.remove(index);
+        let mut tab = state.tabs.remove(index);
         let empty = state.tabs.is_empty();
         drop(state);
+        tab.dismiss_notification();
         if let Some(proc) = tab.proc {
             proc.terminate();
         }
@@ -58,6 +60,15 @@ impl Hub {
         if empty {
             self.emptied();
         }
+        Ok(())
+    }
+
+    fn activate(&self, id: &str) -> Result<()> {
+        let mut state = self.state.lock();
+        state.find(id)?;
+        state.active = Some(id.to_string());
+        drop(state);
+        self.activated(id);
         Ok(())
     }
 
@@ -184,6 +195,10 @@ impl Hub {
             tab: id.to_string(),
             data: output.snapshot(),
         });
+        let _ = tx.send(event_frame(Event::Title {
+            tab: id.to_string(),
+            title: output.title().map(str::to_string),
+        }));
         Ok(())
     }
 
@@ -219,13 +234,15 @@ impl Hub {
         if self.upgrading.load(Ordering::SeqCst) {
             return;
         }
+        self.set_window_open(false);
         let closed: Vec<Tab> = self
             .state
             .lock()
             .tabs
             .extract_if(.., |tab| !tab.pinned)
             .collect();
-        for tab in closed {
+        for mut tab in closed {
+            tab.dismiss_notification();
             if let Some(proc) = tab.proc {
                 proc.terminate();
             }
@@ -310,16 +327,11 @@ impl Hub {
             Command::Close { tab, force } => self.close(&tab, force).map(|()| Reply::Done),
             Command::Select { tab } => {
                 self.require_gui()?;
-                self.state.lock().find(&tab)?;
+                self.activate(&tab)?;
                 self.notify(Event::Select { tab });
                 Ok(Reply::Done)
             }
-            Command::Activate { tab } => {
-                let mut state = self.state.lock();
-                state.find(&tab)?;
-                state.active = Some(tab);
-                Ok(Reply::Done)
-            }
+            Command::Activate { tab } => self.activate(&tab).map(|()| Reply::Done),
             Command::Place {
                 tab,
                 pinned,
@@ -354,6 +366,13 @@ impl Hub {
                 config: self.config(),
             }),
             Command::SetConfig { key, value } => self.set_config(key, &value).map(|()| Reply::Done),
+            Command::Notify { tab, title, body } => self
+                .request_notification(&tab, title.as_deref(), &body)
+                .map(|()| Reply::Done),
+            Command::SetWindowOpen { open } => {
+                self.set_window_open(open);
+                Ok(Reply::Done)
+            }
         }
     }
 }
