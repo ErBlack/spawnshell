@@ -1,5 +1,30 @@
 @import "@xterm/xterm/css/xterm.css" layer(xterm);
 
+:root {
+  --color-background: #080b10;
+  --color-text: #8b95a3;
+  --color-accent: #6cb5de;
+  --color-text-bright: color-mix(in oklab, var(--color-text), white 80%);
+  --color-text-muted: color-mix(
+    in oklab,
+    var(--color-text),
+    var(--color-background) 40%
+  );
+  --color-border: color-mix(in srgb, var(--color-text) 25%, transparent);
+  --color-lifted: color-mix(
+    in oklab,
+    var(--color-background),
+    var(--color-text) 8%
+  );
+  --color-glow: color-mix(in srgb, var(--color-accent) 45%, transparent);
+  --color-shadow: color-mix(in srgb, var(--color-background) 60%, transparent);
+  --gap-large: 0.5em;
+  --gap-small: 0.25em;
+  --radius: 0.25em;
+  --duration: 160ms;
+  --opacity-stopped: 0.45;
+}
+
 html,
 body {
   margin: 0;
@@ -19,14 +44,27 @@ body {
   block-size: 100%;
   box-sizing: border-box;
   display: grid;
-  grid-template-rows: 1fr auto;
-  background-color: #11111adf;
-  border-block-end: 1px solid #575757c4;
+  grid-template: "panes" 1fr "tabbar" auto / 1fr;
+  border-block-end: 1px solid var(--color-border);
+}
+
+#app:has(> #tabbar[data-side="left"]) {
+  grid-template: "tabbar panes" 1fr / auto 1fr;
+}
+
+#app:has(> #tabbar[data-side="right"]) {
+  grid-template: "panes tabbar" 1fr / 1fr auto;
 }
 
 #panes {
+  grid-area: panes;
   position: relative;
   overflow: clip;
+  background-color: color-mix(
+    in srgb,
+    var(--color-background) 87%,
+    transparent
+  );
 }
 
 .pane {
@@ -36,91 +74,200 @@ body {
   display: grid;
   grid-template-columns: 1fr;
   align-content: end;
-  padding-block: 8px;
-  padding-inline: 8px 0;
+  padding: var(--gap-large);
+  transition: opacity var(--duration);
+}
+
+.pane > * {
+  grid-area: 1 / 1;
 }
 
 .pane[hidden] {
   visibility: hidden;
+  opacity: 0;
+}
+
+.pane[data-stopped] .xterm {
+  opacity: var(--opacity-stopped);
+}
+
+.pane-stopped {
+  position: relative;
+  align-self: end;
+  block-size: var(--terminal-row);
+  display: flex;
+  align-items: center;
+  gap: var(--gap-large);
+  color: var(--color-text);
+}
+
+.pane-stopped[hidden] {
+  display: none;
+}
+
+.pane-restart {
+  all: unset;
+  display: flex;
+  gap: var(--gap-small);
+  color: var(--color-accent);
+  cursor: default;
+  transition: color var(--duration);
+}
+
+.pane-restart:hover {
+  color: var(--color-text-bright);
+}
+
+.pane-restart kbd {
+  font: inherit;
+  color: var(--color-text-muted);
 }
 
 #tabbar {
-  font-size: 0.9em;
-  block-size: 2em;
+  grid-area: tabbar;
+  position: relative;
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: max-content;
+  align-items: center;
   overflow-x: auto;
   scrollbar-width: none;
-  border-block-start: 1px solid #ffffff14;
+  background-color: color-mix(
+    in srgb,
+    var(--color-background) 97%,
+    transparent
+  );
+}
+
+#tabbar:is([data-side="left"], [data-side="right"]) {
+  grid-auto-flow: row;
+  grid-template-columns: max-content;
+  align-content: start;
+  overflow-x: clip;
+  overflow-y: auto;
 }
 
 #tabbar:not(:has(.tab)) {
   display: none;
 }
 
+#tabbar:has(> #pinned-tabs:not(:empty)),
+#tabbar[data-dragging] {
+  gap: var(--gap-large);
+}
+
 .tab-group {
   display: grid;
-  grid-auto-columns: 200px;
+  grid-auto-columns: max-content;
   grid-auto-flow: column;
+  gap: var(--gap-small);
 }
 
-#pinned-tabs:not(:empty),
-#tabbar[data-dragging] #pinned-tabs {
-  border-inline-end: 2px solid #ffffff40;
+#pinned-tabs {
+  position: relative;
+}
+
+#tabbar:is([data-side="left"], [data-side="right"]) .tab-group {
+  grid-auto-flow: row;
+}
+
+#pinned-tabs:not(:empty)::after,
+#tabbar[data-dragging] #pinned-tabs::after {
+  content: "";
+  position: absolute;
+  inset-inline-end: calc(var(--gap-large) / -2);
+  inset-block: var(--gap-small);
+  inline-size: 1px;
+  background-color: var(--color-border);
+}
+
+#tabbar:is([data-side="left"], [data-side="right"]) #pinned-tabs::after {
+  inset-inline: var(--gap-large);
+  inset-block: auto calc(var(--gap-large) / -2);
+  inline-size: auto;
+  block-size: 1px;
 }
 
 #tabbar[data-dragging] #pinned-tabs {
-  min-inline-size: 24px;
+  min-inline-size: calc(1lh + 2 * var(--gap-large));
+  min-block-size: calc(1lh + 2 * var(--gap-large));
 }
 
 .tab {
   all: unset;
-  gap: 0.5em;
+  box-sizing: content-box;
+  gap: var(--gap-small);
   display: flex;
   align-items: center;
   overflow: clip;
-  min-inline-size: 0;
-  padding-inline: 0.5em;
-  color: #8b949e;
+  inline-size: 25ch;
+  padding: var(--gap-large);
+  border-radius: var(--radius);
+  color: var(--color-text);
   text-align: start;
   cursor: default;
+  transition:
+    color var(--duration),
+    opacity var(--duration),
+    background-color var(--duration),
+    box-shadow var(--duration);
 }
 
-.tab:hover {
-  background-color: #ffffff0a;
+.tab:not([aria-current="true"]):hover {
+  color: var(--color-text-bright);
 }
 
 .tab[aria-current="true"] {
-  color: var(--terminal-foreground);
+  color: var(--color-accent);
 }
 
 .tab-title {
   flex: 1;
   min-inline-size: 0;
+  padding: var(--gap-large);
+  margin: calc(var(--gap-large) * -1);
   overflow: clip;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.tab.tab-rename {
-  cursor: text;
-  color: var(--terminal-foreground);
-  background-color: #ffffff14;
-  box-shadow: inset 0 0 0 1px #58a6ff;
+.tab[aria-current="true"] .tab-title {
+  text-shadow: 0 0 var(--gap-large) var(--color-glow);
 }
 
-.tab[data-stopped] .tab-title {
-  font-style: italic;
-  opacity: 0.6;
+.tab[data-stopped]:not([aria-current="true"], .tab-dragged) {
+  opacity: var(--opacity-stopped);
+}
+
+.tab[data-stopped][aria-current="true"] .tab-title {
+  opacity: var(--opacity-stopped);
+}
+
+.tab.tab-dragged {
+  position: relative;
+  z-index: 1;
+  background-color: var(--color-lifted);
+  box-shadow: 0 var(--gap-large) calc(var(--gap-large) * 3) var(--color-shadow);
+}
+
+.tab.tab-dragged:not([aria-current="true"]) {
+  color: var(--color-text-bright);
+}
+
+.tab.tab-rename {
+  cursor: text;
+  color: var(--color-text-bright);
+  background-color: color-mix(in srgb, var(--color-accent) 6%, transparent);
+  box-shadow: inset 0 0 0 1px var(--color-accent);
 }
 
 .tab-notified {
   flex: 0 0 auto;
-  inline-size: 6px;
-  block-size: 6px;
+  inline-size: 0.3em;
+  block-size: 0.3em;
   border-radius: 50%;
-  background-color: #58a6ff;
+  background-color: var(--color-accent);
+  box-shadow: 0 0 var(--gap-small) var(--color-accent);
 }
 
 .xterm-viewport {
@@ -138,8 +285,8 @@ body {
         var(--terminal-foreground) 15%,
         transparent
       );
-      border-radius: 4px;
-      transition: background-color 120ms ease;
+      border-radius: var(--radius);
+      transition: background-color var(--duration);
     }
 
     &:hover::before {
@@ -160,10 +307,18 @@ body {
   }
 
   &.vertical > .slider::before {
-    inset: 0 4px;
+    inset: 0 var(--gap-small);
   }
 
   &.horizontal > .slider::before {
-    inset: 4px 0;
+    inset: var(--gap-small) 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab,
+  .pane,
+  .pane-restart {
+    transition: none;
   }
 }

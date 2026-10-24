@@ -1,6 +1,6 @@
 import { Channel } from "@tauri-apps/api/core";
 import { error as logError } from "@tauri-apps/plugin-log";
-import { commands, events, type Font } from "./bindings.ts";
+import { type Appearance, commands, events, type Font } from "./bindings.ts";
 import { errorMessage } from "./error-message.ts";
 import { installKeybindings } from "./install-keybindings.ts";
 import { listenTabMenu } from "./listen-tab-menu.ts";
@@ -22,16 +22,6 @@ async function main() {
   const panes = element("panes");
 
   const terminals = new Terminals(await commands.historyLines());
-  const fonts = new Channel<Font>();
-  const fontReady = new Promise<void>((resolve) => {
-    fonts.onmessage = (font) => {
-      document.body.style.fontFamily = `${font.family}, monospace`;
-      terminals.setFont(font);
-      resolve();
-    };
-  });
-  await commands.watchFont(fonts);
-  await fontReady;
 
   const tabs = new Tabs(
     element("tabbar"),
@@ -39,8 +29,9 @@ async function main() {
     element("tabs"),
     {
       select(id) {
-        manager.select(id);
-        if (manager.find(id)?.alive === false) manager.restart(id);
+        if (manager.active === id && manager.restartable(id))
+          manager.restart(id);
+        else manager.select(id);
       },
       menu(id) {
         const pinned = Boolean(id && manager.find(id)?.pinned);
@@ -60,6 +51,24 @@ async function main() {
   const manager = new TabManager(terminals, panes, () =>
     tabs.render(manager.entries(), manager.active),
   );
+
+  const appearances = new Channel<Appearance>();
+  let font: Font | undefined;
+  const appearanceReady = new Promise<void>((resolve) => {
+    appearances.onmessage = (appearance) => {
+      tabs.setSide(appearance.tabBar);
+      const next = appearance.font;
+      if (font?.family !== next.family || font?.size !== next.size) {
+        font = next;
+        document.body.style.fontFamily = `${next.family}, monospace`;
+        document.body.style.fontSize = `${next.size}px`;
+        terminals.setFont(next);
+      }
+      resolve();
+    };
+  });
+  await commands.watchAppearance(appearances);
+  await appearanceReady;
 
   const unlisteners = await Promise.all([
     events.tabsChanged.listen(({ payload }) => manager.update(payload)),

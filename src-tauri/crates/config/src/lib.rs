@@ -18,6 +18,28 @@ pub struct Config {
     pub height: u32,
     pub command: String,
     pub notification_sound: bool,
+    pub tab_bar: TabBar,
+}
+
+#[derive(
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Debug,
+    Default,
+    Serialize,
+    Deserialize,
+    clap::ValueEnum,
+    specta::Type,
+)]
+#[serde(rename_all = "snake_case")]
+#[value(rename_all = "snake_case")]
+pub enum TabBar {
+    #[default]
+    Bottom,
+    Left,
+    Right,
 }
 
 impl Default for Config {
@@ -29,6 +51,7 @@ impl Default for Config {
             height: 50,
             command: String::new(),
             notification_sound: true,
+            tab_bar: TabBar::Bottom,
         }
     }
 }
@@ -43,13 +66,19 @@ pub enum Key {
     Height,
     Command,
     NotificationSound,
+    TabBar,
+}
+
+fn value_name(value: &impl ValueEnum) -> String {
+    value
+        .to_possible_value()
+        .map(|value| value.get_name().to_owned())
+        .unwrap_or_default()
 }
 
 impl Key {
     fn name(self) -> String {
-        self.to_possible_value()
-            .map(|value| value.get_name().to_owned())
-            .unwrap_or_default()
+        value_name(&self)
     }
 
     fn value(self, text: &str) -> Result<toml_edit::Value> {
@@ -65,6 +94,9 @@ impl Key {
                 .parse::<bool>()
                 .map(Into::into)
                 .map_err(|_| anyhow!("{} must be true or false", self.name())),
+            Key::TabBar => TabBar::from_str(text, false)
+                .map(|tab_bar| value_name(&tab_bar).into())
+                .map_err(|_| anyhow!("{} must be bottom, left or right", self.name())),
         }
     }
 
@@ -114,6 +146,7 @@ impl Config {
             Key::Height => self.height.to_string(),
             Key::Command => self.command.clone(),
             Key::NotificationSound => self.notification_sound.to_string(),
+            Key::TabBar => value_name(&self.tab_bar),
         }
     }
 }
@@ -224,6 +257,17 @@ mod tests {
         assert_eq!(config.get(Key::NotificationSound), "false");
         let (_, config) = edit(path, &text, Key::NotificationSound, "true").unwrap();
         assert!(config.notification_sound);
+    }
+
+    #[test]
+    fn tab_bar_moves_to_a_side() {
+        let path = Path::new("config.toml");
+        assert_eq!(parse(path, "").unwrap().tab_bar, TabBar::Bottom);
+        let (text, config) = edit(path, "", Key::TabBar, "left").unwrap();
+        assert_eq!(config.tab_bar, TabBar::Left);
+        assert_eq!(text, "tab_bar = \"left\"\n");
+        assert_eq!(config.get(Key::TabBar), "left");
+        assert!(edit(path, "", Key::TabBar, "top").is_err());
     }
 
     #[test]

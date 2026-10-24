@@ -17,10 +17,42 @@ interface Renaming {
   settled: boolean;
 }
 
+interface Placing {
+  pinned: boolean;
+  position: number | null;
+}
+
+function placed(
+  items: readonly TabInfo[],
+  id: string,
+  { pinned, position }: Placing,
+): readonly TabInfo[] {
+  const moved = items.find((item) => item.id === id);
+  if (!moved) return items;
+  const rest = items.filter((item) => item !== moved);
+  const pinnedCount = rest.filter((item) => item.pinned).length;
+  const start = pinned ? 0 : pinnedCount;
+  const length = pinned ? pinnedCount : rest.length - pinnedCount;
+  const at = start + Math.min(position ?? length, length);
+  return [...rest.slice(0, at), { ...moved, pinned }, ...rest.slice(at)];
+}
+
+function sameOrder(a: readonly TabInfo[], b: readonly TabInfo[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every(
+      (item, index) =>
+        item.id === b[index]?.id && item.pinned === b[index]?.pinned,
+    )
+  );
+}
+
 export class TabManager {
   private readonly selection = new TabSelection();
   private readonly tabs = new Map<string, Tab>();
   private readonly renaming = new Map<string, Renaming>();
+  private readonly placing = new Map<string, Placing>();
+  private received: readonly TabInfo[] = [];
   private readonly titles = new Map<string, string>();
   private readonly restarting = new Set<string>();
   private readonly terminals: Terminals;
@@ -49,6 +81,11 @@ export class TabManager {
     return this.selection.find(id);
   }
 
+  restartable(id: string): boolean {
+    const info = this.find(id);
+    return info !== undefined && !info.alive && info.pinned;
+  }
+
   entries(): TabEntry[] {
     return this.selection.items.map((info) => {
       const renaming = this.renaming.get(info.id);
@@ -62,12 +99,26 @@ export class TabManager {
     this.update(await commands.tabsList());
   }
 
-  update(items: readonly TabInfo[]) {
+  update(received: readonly TabInfo[]) {
+    this.received = received;
+    for (const [id, placing] of this.placing)
+      if (sameOrder(placed(received, id, placing), received))
+        this.placing.delete(id);
+    let items = received;
+    for (const [id, placing] of this.placing)
+      items = placed(items, id, placing);
+
     const before = this.selection.active;
     this.selection.update(items);
     for (const { id } of items) {
-      if (this.tabs.has(id)) continue;
-      this.tabs.set(id, new Tab(id, this.terminals, this.container));
+      let tab = this.tabs.get(id);
+      if (!tab) {
+        tab = new Tab(id, this.terminals, this.container, () =>
+          this.restart(id),
+        );
+        this.tabs.set(id, tab);
+      }
+      tab.setStopped(this.restartable(id));
     }
     for (const [id, tab] of this.tabs) {
       if (this.selection.find(id)) continue;
@@ -88,6 +139,8 @@ export class TabManager {
     for (const tab of this.tabs.values()) tab.dispose();
     this.tabs.clear();
     this.renaming.clear();
+    this.placing.clear();
+    this.received = [];
     this.titles.clear();
     this.selection.clear();
     this.onChange();
@@ -161,7 +214,17 @@ export class TabManager {
   }
 
   place(id: string, pinned: boolean, position: number | null) {
-    reportFailure(commands.tabPlace(id, pinned, position));
+    const placing = { pinned, position };
+    this.placing.delete(id);
+    this.placing.set(id, placing);
+    this.update(this.received);
+    commands.tabPlace(id, pinned, position).catch((error: unknown) => {
+      if (this.placing.get(id) === placing) {
+        this.placing.delete(id);
+        this.update(this.received);
+      }
+      showError(errorMessage(error));
+    });
   }
 
   focus() {

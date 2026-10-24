@@ -24,7 +24,7 @@ export const commands = {
 	showTabMenu: (tab: string | null, pinned: boolean) => __TAURI_INVOKE<null>("show_tab_menu", { tab, pinned }),
 	hideWindow: () => __TAURI_INVOKE<void>("hide_window"),
 	isOpen: () => __TAURI_INVOKE<boolean>("is_open"),
-	watchFont: (onChange: Channel<Font>) => __TAURI_INVOKE<void>("watch_font", { onChange }),
+	watchAppearance: (onChange: Channel<Appearance>) => __TAURI_INVOKE<void>("watch_appearance", { onChange }),
 	reportFatal: (message: string) => __TAURI_INVOKE<void>("report_fatal", { message }),
 	reportError: (message: string) => __TAURI_INVOKE<void>("report_error", { message }),
 };
@@ -42,12 +42,19 @@ export const events = {
 };
 
 /* Types */
+export type Appearance = {
+	font: Font,
+	tabBar: TabBar,
+};
+
 export type Font = {
 	family: string,
 	size: number,
 };
 
 export type Reconnected = null;
+
+export type TabBar = "bottom" | "left" | "right";
 
 export type TabInfo = {
 	id: string,

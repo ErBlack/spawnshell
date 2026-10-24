@@ -26,11 +26,27 @@ impl From<&Config> for Font {
     }
 }
 
+#[derive(Clone, PartialEq, Eq, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct Appearance {
+    pub font: Font,
+    pub tab_bar: config::TabBar,
+}
+
+impl From<&Config> for Appearance {
+    fn from(config: &Config) -> Self {
+        Appearance {
+            font: Font::from(config),
+            tab_bar: config.tab_bar,
+        }
+    }
+}
+
 #[derive(Default)]
 struct Shared {
     config: Option<Config>,
     shortcut: Option<String>,
-    watcher: Option<Channel<Font>>,
+    watcher: Option<Channel<Appearance>>,
 }
 
 #[derive(Default)]
@@ -53,11 +69,11 @@ pub fn apply(app: &AppHandle, config: Config) {
     let (previous, registered) = {
         let mut shared = gui_config.0.lock();
         let previous = shared.config.replace(config.clone());
-        let font = Font::from(&config);
+        let appearance = Appearance::from(&config);
         if let Some(watcher) = &shared.watcher
-            && previous.as_ref().map(Font::from) != Some(font.clone())
+            && previous.as_ref().map(Appearance::from) != Some(appearance.clone())
         {
-            let _ = watcher.send(font);
+            let _ = watcher.send(appearance);
         }
         (previous, shared.shortcut.clone())
     };
@@ -95,10 +111,10 @@ pub fn apply(app: &AppHandle, config: Config) {
 
 #[tauri::command]
 #[specta::specta]
-pub fn watch_font(gui_config: tauri::State<'_, GuiConfig>, on_change: Channel<Font>) {
+pub fn watch_appearance(gui_config: tauri::State<'_, GuiConfig>, on_change: Channel<Appearance>) {
     let mut shared = gui_config.0.lock();
     if let Some(config) = &shared.config {
-        let _ = on_change.send(Font::from(config));
+        let _ = on_change.send(Appearance::from(config));
     }
     shared.watcher = Some(on_change);
 }

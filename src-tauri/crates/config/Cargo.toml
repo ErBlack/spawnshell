@@ -12,6 +12,7 @@ clap.workspace = true
 dirs.workspace = true
 global-hotkey.workspace = true
 serde.workspace = true
+specta.workspace = true
 toml.workspace = true
 toml_edit.workspace = true
 

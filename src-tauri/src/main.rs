@@ -59,7 +59,7 @@ fn bindings() -> tauri_specta::Builder<tauri::Wry> {
             client::menu::show_tab_menu,
             window::hide_window,
             window::is_open,
-            gui_config::watch_font,
+            gui_config::watch_appearance,
             report_fatal,
             report_error,
         ])

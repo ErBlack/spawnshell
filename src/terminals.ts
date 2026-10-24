@@ -9,29 +9,32 @@ interface Size {
   cols: number;
 }
 
+interface Measured extends Size {
+  rowHeight: number;
+}
+
 const THEME = {
   background: "#00000000",
-  foreground: "#e6edf3",
-  cursor: "#2f81f7",
-  cursorAccent: "#6fc1ff",
-  selectionBackground: "#e6edf3",
-  selectionForeground: "#0d1117",
-  black: "#484f58",
-  red: "#ff7b72",
-  green: "#3fb950",
-  yellow: "#d29922",
-  blue: "#58a6ff",
-  magenta: "#bc8cff",
-  cyan: "#39c5cf",
-  white: "#b1bac4",
-  brightBlack: "#6e7681",
-  brightRed: "#ffa198",
-  brightGreen: "#56d364",
-  brightYellow: "#e3b341",
-  brightBlue: "#79c0ff",
-  brightMagenta: "#d2a8ff",
-  brightCyan: "#56d4dd",
-  brightWhite: "#ffffff",
+  foreground: "#d5dae1",
+  cursor: "#6cb5de",
+  cursorAccent: "#080b10",
+  selectionBackground: "#6cb5de40",
+  black: "#2b323d",
+  red: "#df7676",
+  green: "#72c99e",
+  yellow: "#dcb66a",
+  blue: "#6cb5de",
+  magenta: "#b294db",
+  cyan: "#5ec1c9",
+  white: "#8b95a3",
+  brightBlack: "#636d7a",
+  brightRed: "#eba0a0",
+  brightGreen: "#96dbb8",
+  brightYellow: "#ead08f",
+  brightBlue: "#9acfee",
+  brightMagenta: "#cbb6ec",
+  brightCyan: "#8ad6dc",
+  brightWhite: "#f2f4f7",
   scrollbarSliderBackground: "#00000000",
   scrollbarSliderHoverBackground: "#00000000",
   scrollbarSliderActiveBackground: "#00000000",
@@ -45,7 +48,7 @@ function openLink(event: MouseEvent, uri: string) {
   if (event.metaKey) openUrl(uri);
 }
 
-function measure(terminal: Terminal): Size | undefined {
+function measure(terminal: Terminal): Measured | undefined {
   const pane = terminal.element?.parentElement;
   const screen = terminal.element?.querySelector<HTMLElement>(".xterm-screen");
   const { rows, cols } = terminal;
@@ -65,6 +68,7 @@ function measure(terminal: Terminal): Size | undefined {
   return {
     rows: Math.max(1, Math.floor(height / cellHeight)),
     cols: Math.max(2, Math.floor(width / cellWidth)),
+    rowHeight: cellHeight,
   };
 }
 
@@ -125,7 +129,11 @@ export class Terminals {
     }
   }
 
-  private apply(measured: Size) {
+  private apply({ rowHeight, ...measured }: Measured) {
+    document.documentElement.style.setProperty(
+      "--terminal-row",
+      `${rowHeight}px`,
+    );
     if (measured.rows === this.size.rows && measured.cols === this.size.cols)
       return;
     this.size = measured;
