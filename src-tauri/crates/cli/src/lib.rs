@@ -1,4 +1,5 @@
-use std::io::{self, Write};
+use std::fs;
+use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::thread;
@@ -6,11 +7,13 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
 use clap::builder::NonEmptyStringValueParser;
-use clap::{Args, Parser, Subcommand};
+use clap::error::ErrorKind;
+use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand};
 use config::Key;
 use protocol::{Command, Connection, Failure, Reply, Role, TabInfo};
 
 pub mod install;
+mod version;
 
 const TIMEOUT: Duration = Duration::from_secs(15);
 const UPDATE_WAIT: Duration = Duration::from_secs(10);
@@ -42,6 +45,9 @@ enum Action {
     List,
     /// Open a new tab
     New {
+        /// Directory to start in; defaults to home
+        #[arg(value_name = "DIR", value_parser = |path: &str| fs::canonicalize(path))]
+        cwd: Option<PathBuf>,
         /// Pin the new tab
         #[arg(long)]
         pinned: bool,
@@ -228,7 +234,7 @@ fn send(action: Action, out: &mut impl Write) -> Result<()> {
             }
             return Ok(());
         }
-        Action::New { pinned } => Command::New { pinned },
+        Action::New { cwd, pinned } => Command::New { pinned, cwd },
         Action::Close {
             force,
             target: Target { tab },
@@ -318,8 +324,20 @@ fn broken_pipe(error: &anyhow::Error) -> bool {
 }
 
 #[must_use]
-pub fn run() -> ExitCode {
-    match execute(Cli::parse(), &mut io::stdout().lock()) {
+pub fn run(version: &'static str, description: &str) -> ExitCode {
+    let mut out = io::stdout().lock();
+    let result = match Cli::command().version(version).try_get_matches() {
+        Ok(matches) => match Cli::from_arg_matches(&matches) {
+            Ok(cli) => execute(cli, &mut out),
+            Err(error) => error.exit(),
+        },
+        Err(error) if error.kind() == ErrorKind::DisplayVersion => {
+            version::print(version, description, io::stdout().is_terminal(), &mut out)
+                .map_err(anyhow::Error::from)
+        }
+        Err(error) => error.exit(),
+    };
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) if broken_pipe(&error) => ExitCode::SUCCESS,
         Err(error) => {
@@ -400,7 +418,12 @@ mod tests {
         let (socket, answered) = updating_daemon("retry", 2);
         let mut client = Client::connect(socket.clone(), Instant::now() + UPDATE_WAIT).unwrap();
 
-        let reply = client.call(&Command::New { pinned: false }).unwrap();
+        let reply = client
+            .call(&Command::New {
+                pinned: false,
+                cwd: None,
+            })
+            .unwrap();
         let commands = answered.recv_timeout(UPDATE_WAIT).unwrap();
         let _ = fs::remove_dir_all(socket.parent().unwrap());
 
@@ -414,7 +437,12 @@ mod tests {
         let deadline = Instant::now() + Duration::from_millis(500);
         let mut client = Client::connect(socket.clone(), deadline).unwrap();
 
-        let error = client.call(&Command::New { pinned: false }).unwrap_err();
+        let error = client
+            .call(&Command::New {
+                pinned: false,
+                cwd: None,
+            })
+            .unwrap_err();
         let _ = fs::remove_dir_all(socket.parent().unwrap());
 
         assert_eq!(error.to_string(), Failure::Updating.to_string());

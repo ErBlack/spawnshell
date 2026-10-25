@@ -8,12 +8,13 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
 use config::Config;
-use protocol::{Command, Connection, Reply, Role};
+use protocol::{Command, Connection, Failure, Reply, Role};
 
 use super::REQUEST_TIMEOUT;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const HELLO_ATTEMPTS: u32 = 10;
+const HELLO_DELAY: Duration = Duration::from_millis(100);
 const REOPEN: &str = "Spawnshell was moved or updated, quit and reopen it";
 
 fn log_dir() -> Result<PathBuf> {
@@ -156,6 +157,7 @@ fn hello(spawn: bool) -> Result<Greeting> {
                 build,
                 warning,
                 config,
+                ..
             })) => {
                 return Ok(Greeting {
                     connection,
@@ -165,9 +167,10 @@ fn hello(spawn: bool) -> Result<Greeting> {
                 });
             }
             Ok(Ok(_)) => bail!("unexpected reply from the background process"),
+            Ok(Err(Failure::Updating)) if attempt < HELLO_ATTEMPTS => thread::sleep(HELLO_DELAY),
             Ok(Err(error)) => bail!(error),
             Err(error) if disconnected(&error) && attempt < HELLO_ATTEMPTS => {
-                thread::sleep(Duration::from_millis(100));
+                thread::sleep(HELLO_DELAY);
             }
             Err(error) => {
                 let context = failure(&error);

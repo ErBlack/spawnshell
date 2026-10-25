@@ -128,6 +128,7 @@ pub(super) struct Hub {
     notification: mpsc::Sender<TabNotification>,
     pub(super) window_open: AtomicBool,
     pub(super) notifications_failed: AtomicBool,
+    pub(super) version: &'static str,
 }
 
 fn display_path(path: &Path, home: Option<&Path>) -> String {
@@ -190,6 +191,7 @@ impl Hub {
         restored: Restored,
         exit: mpsc::Sender<Exit>,
         notification: mpsc::Sender<TabNotification>,
+        version: &'static str,
     ) -> Arc<Self> {
         let shell = Shell::detect();
         Arc::new(Hub {
@@ -215,6 +217,7 @@ impl Hub {
             notification,
             window_open: AtomicBool::new(false),
             notifications_failed: AtomicBool::new(false),
+            version,
         })
     }
 

@@ -125,6 +125,7 @@ impl Env {
             .env("SPAWNSHELL_SOCKET", &self.socket)
             .env("SHELL", "/bin/sh")
             .env_remove("SPAWNSHELL_TAB")
+            .current_dir(&self.home)
             .stdin(Stdio::null())
             .stdout(Stdio::null());
         command
@@ -402,7 +403,7 @@ fn a_pinned_tab_closes_only_with_force() {
     assert!(succeeded(
         &env.spawnshell(&["close", "--force", "--tab", &pinned])
     ));
-    assert!(gui.tabs().is_empty());
+    assert_eq!(gui.tabs(), Vec::<Value>::new());
 }
 
 #[test]
@@ -713,6 +714,69 @@ fn cli_needs_a_tab_outside_spawnshell_and_reports_a_missing_daemon() {
     assert!(succeeded(&env.spawnshell(&["list"])));
 }
 
+#[test]
+fn a_new_tab_becomes_active() {
+    let env = Env::new("new-active");
+    let _daemon = env.start();
+    let mut gui = env.connect("gui");
+    let first = new_tab(&mut gui, false);
+    let second = new_tab(&mut gui, false);
+
+    assert!(flagged(&mut gui, &second, "active"));
+    assert!(!flagged(&mut gui, &first, "active"));
+}
+
+#[test]
+fn the_cli_opens_a_new_tab_in_a_directory() {
+    let env = Env::new("cwd");
+    let _daemon = env.start();
+    let mut gui = env.connect("gui");
+    let project = env.home.join("project");
+    std::fs::create_dir(&project).unwrap();
+
+    let output = env.spawnshell(&["new", "project"]);
+    assert!(succeeded(&output));
+    let tab = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    gui.call(&json!({"command": "attach", "tab": tab}));
+    gui.type_text(&tab, "echo CWD:$(pwd):\n");
+    gui.wait_for(&format!(
+        "CWD:{}:",
+        project.canonicalize().unwrap().display()
+    ));
+}
+
+#[test]
+fn a_new_tab_needs_an_absolute_path_to_a_directory() {
+    let env = Env::new("bad-cwd");
+    let _daemon = env.start();
+    let mut gui = env.connect("gui");
+    std::fs::create_dir(env.home.join("project")).unwrap();
+    std::fs::write(env.home.join("notes"), "").unwrap();
+
+    for (path, error) in [
+        ("missing", "No such file or directory"),
+        ("notes", "is not a directory"),
+    ] {
+        let output = env.spawnshell(&["new", path]);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(!output.status.success(), "opened {path}");
+        assert!(stderr.contains(error), "{path}: {stderr}");
+    }
+    let reply = gui
+        .try_call(&json!({"command": "new", "pinned": false, "cwd": "project"}))
+        .unwrap();
+    assert_eq!(reply["Err"], "project is not an absolute path");
+    let missing = env.home.join("missing");
+    let reply = gui
+        .try_call(&json!({"command": "new", "pinned": false, "cwd": missing}))
+        .unwrap();
+    assert_eq!(
+        reply["Err"],
+        format!("{} does not exist", missing.display())
+    );
+    assert_eq!(gui.tabs(), Vec::<Value>::new());
+}
+
 fn run(client: &mut Client, tab: &str, command: &str, marker: &str) {
     client.type_text(tab, &format!("{command}; echo {marker}':'\n"));
     client.wait_for(&format!("{marker}:"));
@@ -893,4 +957,71 @@ fn data_of_the_previous_name_waits_until_it_stops() {
     assert!(!daemon.child.wait().unwrap().success());
     assert!(previous.join("session.json").exists());
     assert!(!env.data_dir().exists());
+}
+
+#[test]
+fn the_daemon_says_its_version_and_pid() {
+    let env = Env::new("version");
+    let daemon = env.start();
+    let mut cli = env.connect("cli");
+
+    let hello = cli.call(&json!({"command": "hello", "role": "cli"}));
+
+    assert_eq!(hello["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(hello["pid"], daemon.child.id());
+}
+
+#[test]
+fn the_daemon_after_an_upgrade_reports_its_own_pid() {
+    let env = Env::new("upgrade-pid");
+    let mut first = env.start();
+    let mut gui = env.connect("gui");
+    let old = first.child.id();
+
+    let _ = gui.try_call(&json!({"command": "upgrade", "exe": BIN}));
+    assert!(first.exited(), "old daemon did not exit");
+
+    let mut cli = env.connect("cli");
+    let hello = cli.call(&json!({"command": "hello", "role": "cli"}));
+
+    assert_ne!(hello["pid"], old);
+    assert!(alive(
+        i32::try_from(hello["pid"].as_i64().unwrap()).unwrap()
+    ));
+    assert_eq!(hello["version"], env!("CARGO_PKG_VERSION"));
+}
+
+#[test]
+fn version_in_a_terminal_shows_the_screen() {
+    let env = Env::new("terminal-version");
+
+    let output = Command::new("script")
+        .args(["-q", "/dev/null", BIN, "--version"])
+        .env("HOME", &env.home)
+        .env("SPAWNSHELL_SOCKET", &env.socket)
+        .env("NO_COLOR", "1")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+
+    assert!(succeeded(&output));
+    let text = String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n");
+    let title = format!("      spawnshell {}\n", env!("CARGO_PKG_VERSION"));
+    assert!(text.contains(&title), "{text}");
+    assert!(text.contains("daemon  not running\n"), "{text}");
+}
+
+#[test]
+fn piped_version_is_one_line() {
+    let env = Env::new("piped-version");
+
+    for flag in ["--version", "-V"] {
+        let output = env.spawnshell(&[flag]);
+
+        assert!(succeeded(&output));
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            format!("spawnshell {}\n", env!("CARGO_PKG_VERSION"))
+        );
+    }
 }

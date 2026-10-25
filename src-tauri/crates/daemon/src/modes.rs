@@ -708,20 +708,20 @@ mod tests {
     fn progress_and_other_codes_are_not_notifications() {
         let bytes =
             b"\x1b]9;4;1;50\x07\x1b]9;4;0;\x07\x1b]9;\x07\x1b]777;preexec\x07\x1b]777;notify;;\x07";
-        assert!(notifications(bytes).is_empty());
+        assert_eq!(notifications(bytes), []);
     }
 
     #[test]
     fn a_notification_split_across_reads_arrives_once_whole() {
         let mut modes = Modes::new(24);
         modes.process(b"\x1b]777;notify;Ti");
-        assert!(modes.take_notifications().is_empty());
+        assert_eq!(modes.take_notifications(), []);
         modes.process(b"tle;Body\x07");
         assert_eq!(
             modes.take_notifications(),
             [notification(Some("Title"), "Body")]
         );
-        assert!(modes.take_notifications().is_empty());
+        assert_eq!(modes.take_notifications(), []);
     }
 
     #[test]

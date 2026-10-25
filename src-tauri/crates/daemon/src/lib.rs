@@ -137,6 +137,7 @@ fn take_over_previous_data(dir: &Path) -> Result<()> {
 fn fresh(
     exit: mpsc::Sender<Exit>,
     notification: mpsc::Sender<TabNotification>,
+    version: &'static str,
 ) -> Result<Option<Arc<Hub>>> {
     let dir = paths::data_dir()?;
     take_over_previous_data(&dir)?;
@@ -169,7 +170,7 @@ fn fresh(
         size,
         active: saved.selected,
     };
-    let hub = Hub::new(listener, lock_file, restored, exit, notification);
+    let hub = Hub::new(listener, lock_file, restored, exit, notification, version);
     for (entry, history) in saved.tabs.into_iter().zip(histories) {
         let output = hub.new_output(&entry.id, size);
         let launch = Launch {
@@ -198,14 +199,14 @@ fn fresh(
     Ok(Some(hub))
 }
 
-pub fn run(adopting: bool) -> ExitCode {
+pub fn run(adopting: bool, version: &'static str) -> ExitCode {
     let signals = block_signals();
     let (exit, exits) = mpsc::channel();
     let (notification, notifications) = mpsc::channel();
     let started = if adopting {
-        handoff::adopt(exit.clone(), notification).map(Some)
+        handoff::adopt(exit.clone(), notification, version).map(Some)
     } else {
-        fresh(exit.clone(), notification)
+        fresh(exit.clone(), notification, version)
     };
     let hub = match started {
         Ok(Some(hub)) => hub,

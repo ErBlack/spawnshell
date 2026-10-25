@@ -1,7 +1,8 @@
 {
   "name": "spawnshell-terminal",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.0.0",
+  "license": "GPL-3.0-or-later",
   "type": "module",
   "scripts": {
     "prepare": "git config core.hooksPath .githooks || true",
@@ -9,10 +10,11 @@
     "build": "tauri build",
     "frontend": "vite",
     "frontend:build": "vite build",
-    "lint": "biome check src && cargo clippy --manifest-path src-tauri/Cargo.toml",
-    "fix": "biome check --write src && cargo fmt --manifest-path src-tauri/Cargo.toml && cargo clippy --fix --allow-dirty --allow-staged --manifest-path src-tauri/Cargo.toml",
-    "check:types": "tsc && cargo check --manifest-path src-tauri/Cargo.toml",
-    "check:unused": "knip"
+    "lint": "biome check src && cargo fmt --manifest-path src-tauri/Cargo.toml --all --check && cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets -- -D warnings",
+    "fix": "biome check --write src && cargo fmt --manifest-path src-tauri/Cargo.toml --all && cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets --fix --allow-dirty --allow-staged",
+    "check:types": "tsc",
+    "check:unused": "knip",
+    "test": "cargo test --manifest-path src-tauri/Cargo.toml --workspace"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",

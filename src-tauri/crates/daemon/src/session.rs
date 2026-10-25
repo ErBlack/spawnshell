@@ -238,7 +238,7 @@ mod tests {
         )
         .unwrap();
         let entry = &session.tabs[0];
-        assert!(!entry.id.is_empty());
+        assert_ne!(entry.id, "");
         assert!(entry.cwd.is_none());
         assert_eq!(entry.restore.as_deref(), Some("echo hi"));
         assert!(!entry.notified);

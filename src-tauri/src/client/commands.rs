@@ -55,7 +55,12 @@ pub async fn tabs_list(daemon: State<'_, Daemon>) -> CommandResult<Vec<TabInfo>>
 #[tauri::command]
 #[specta::specta]
 pub async fn tab_new(daemon: State<'_, Daemon>) -> CommandResult<()> {
-    daemon.done(Command::New { pinned: false }).await
+    daemon
+        .done(Command::New {
+            pinned: false,
+            cwd: None,
+        })
+        .await
 }
 
 #[tauri::command]
@@ -215,5 +220,5 @@ pub fn history_lines() -> u32 {
 #[tauri::command]
 #[specta::specta]
 pub fn take_warning(daemon: State<'_, Daemon>) -> Option<String> {
-    daemon.0.warning.lock().take()
+    daemon.take_warning()
 }

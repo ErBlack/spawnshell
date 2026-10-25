@@ -9,8 +9,8 @@ if printf '%s\n' "$files" | grep -qE '\.(ts|css|json)$'; then
 fi
 
 if printf '%s\n' "$files" | grep -q '\.rs$'; then
-  cargo fmt --manifest-path src-tauri/Cargo.toml
-  cargo clippy --manifest-path src-tauri/Cargo.toml --fix --allow-dirty --allow-staged --all-targets -q
+  cargo fmt --manifest-path src-tauri/Cargo.toml --all
+  cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets --fix --allow-dirty --allow-staged -q
 fi
 
 git diff --cached --name-only --diff-filter=ACM -z | xargs -0 git add

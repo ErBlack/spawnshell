@@ -8,6 +8,7 @@ use std::fmt;
 use std::io::BufReader;
 use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, mpsc};
 use std::thread;
@@ -99,6 +100,7 @@ struct Inner {
     seq: AtomicU64,
     size: Mutex<Option<(u16, u16)>>,
     warning: Mutex<Option<String>>,
+    listening: AtomicBool,
     stopping: AtomicBool,
     window_open: AtomicBool,
 }
@@ -164,6 +166,7 @@ impl Daemon {
             let open = self.0.window_open.load(Ordering::SeqCst);
             self.post(Command::SetWindowOpen { open });
             let _ = Reconnected.emit(app);
+            crate::folders::open_waiting(app);
         }
     }
 
@@ -250,10 +253,7 @@ impl Daemon {
                 let _ = TabTitleChanged { tab, title }.emit(app);
             }
             Event::Config { config } => crate::gui_config::apply(app, config),
-            Event::Warning { message } => {
-                log::warn!("{message}");
-                let _ = Warning(message).emit(app);
-            }
+            Event::Warning { message } => self.warn(app, message),
             Event::Show => crate::window::show(app),
             Event::Hide => crate::window::hide(app),
             Event::Toggle => crate::window::toggle(app),
@@ -334,6 +334,48 @@ impl Daemon {
 
     pub fn select(&self, tab: String) {
         self.post(Command::Select { tab });
+    }
+
+    pub fn new_tab_in(&self, app: &AppHandle, cwd: PathBuf) -> Result<(), PathBuf> {
+        let command = Command::New {
+            pinned: false,
+            cwd: Some(cwd.clone()),
+        };
+        let Ok(pending) = self.submit(command) else {
+            return Err(cwd);
+        };
+        let daemon = self.clone();
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let error = match daemon.answer(pending).await {
+                Ok(Ok(_)) => return,
+                Ok(Err(failure)) => failure.to_string(),
+                Err(Unanswered::Lost) => return crate::folders::retry(&app, cwd),
+                Err(error) => error.to_string(),
+            };
+            daemon.warn(&app, format!("couldn't open a tab: {error}"));
+        });
+        Ok(())
+    }
+
+    fn warn(&self, app: &AppHandle, message: String) {
+        log::warn!("{message}");
+        let mut waiting = self.0.warning.lock();
+        if self.0.listening.load(Ordering::SeqCst) {
+            drop(waiting);
+            let _ = Warning(message).emit(app);
+        } else if let Some(earlier) = waiting.as_mut() {
+            earlier.push('\n');
+            earlier.push_str(&message);
+        } else {
+            *waiting = Some(message);
+        }
+    }
+
+    pub fn take_warning(&self) -> Option<String> {
+        let mut waiting = self.0.warning.lock();
+        self.0.listening.store(true, Ordering::SeqCst);
+        waiting.take()
     }
 
     pub fn stop(&self, app: &AppHandle) {

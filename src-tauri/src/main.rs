@@ -1,4 +1,5 @@
 mod client;
+mod folders;
 mod gui_config;
 mod native;
 mod shortcut;
@@ -6,7 +7,7 @@ mod window;
 
 use std::process::ExitCode;
 
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, RunEvent};
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use tauri_plugin_global_shortcut::ShortcutState;
 use tauri_specta::{collect_commands, collect_events};
@@ -79,8 +80,11 @@ fn main() -> ExitCode {
     protocol::build();
     let mut args = std::env::args().skip(1);
     match args.next().as_deref() {
-        Some("__daemon") => daemon::run(args.next().as_deref() == Some("--adopt")),
-        Some(_) => cli::run(),
+        Some("__daemon") => daemon::run(
+            args.next().as_deref() == Some("--adopt"),
+            env!("CARGO_PKG_VERSION"),
+        ),
+        Some(_) => cli::run(env!("CARGO_PKG_VERSION"), env!("CARGO_PKG_DESCRIPTION")),
         None => match app() {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => {
@@ -144,6 +148,7 @@ fn app() -> tauri::Result<()> {
         .plugin(tauri_nspanel::init())
         .manage(window::WindowState::default())
         .manage(gui_config::GuiConfig::default())
+        .manage(folders::Waiting::default())
         .invoke_handler(bindings.invoke_handler())
         .setup(move |app| {
             bindings.mount_events(app);
@@ -165,6 +170,7 @@ fn app() -> tauri::Result<()> {
                 Ok(daemon) => {
                     app.manage(daemon);
                     setup_notifications(app.handle());
+                    folders::open_waiting(app.handle());
                 }
                 Err(error) => {
                     log::error!("can't connect to the background process: {error:#}");
@@ -180,7 +186,13 @@ fn app() -> tauri::Result<()> {
                 window::hide(window.app_handle());
             }
         })
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())?
+        .run(|app, event| {
+            if let RunEvent::Opened { urls } = event {
+                folders::receive(app, &urls);
+            }
+        });
+    Ok(())
 }
 
 #[cfg(test)]

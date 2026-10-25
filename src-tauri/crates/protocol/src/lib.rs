@@ -158,6 +158,7 @@ pub enum Command {
     List,
     New {
         pinned: bool,
+        cwd: Option<PathBuf>,
     },
     Close {
         tab: String,
@@ -250,6 +251,8 @@ pub enum Reply {
         build: Option<Build>,
         warning: Option<String>,
         config: Option<Config>,
+        version: Option<String>,
+        pid: Option<u32>,
     },
     Tabs {
         tabs: Vec<TabInfo>,
@@ -458,5 +461,20 @@ mod tests {
         let pinned = serde_json::to_string(&Err::<Reply, _>(Failure::Pinned)).unwrap();
         let pinned: Result<Reply, Failure> = serde_json::from_str(&pinned).unwrap();
         assert_eq!(pinned.err(), Some(Failure::Pinned));
+    }
+
+    #[test]
+    fn an_older_hello_has_no_version_or_pid() {
+        let older: Reply =
+            serde_json::from_str(r#"{"reply":"hello","build":null,"warning":null,"config":null}"#)
+                .unwrap();
+        assert!(matches!(
+            older,
+            Reply::Hello {
+                version: None,
+                pid: None,
+                ..
+            }
+        ));
     }
 }

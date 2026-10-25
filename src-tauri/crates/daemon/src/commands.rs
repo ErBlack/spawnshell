@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, mpsc};
 use std::thread;
@@ -18,11 +18,24 @@ use crate::session::{self, TabEntry};
 const UNPINNED_RESTORE: &str = "only pinned tabs have a restore command";
 
 impl Hub {
-    fn create(self: &Arc<Self>, pinned: bool) -> Result<String> {
+    fn create(self: &Arc<Self>, pinned: bool, cwd: Option<PathBuf>) -> Result<String> {
+        if let Some(cwd) = &cwd {
+            ensure!(
+                cwd.is_absolute(),
+                "{} is not an absolute path",
+                cwd.display()
+            );
+            ensure!(cwd.exists(), "{} does not exist", cwd.display());
+            ensure!(cwd.is_dir(), "{} is not a directory", cwd.display());
+        }
         let size = self.state.lock().size;
         let id = session::new_id();
         let output = self.new_output(&id, size);
-        let spawned = self.launch(&id, &output, size, Launch::default())?;
+        let launch = Launch {
+            cwd,
+            ..Launch::default()
+        };
+        let spawned = self.launch(&id, &output, size, launch)?;
         let mut state = self.state.lock();
         if self.upgrading.load(Ordering::SeqCst) {
             spawned.discard();
@@ -314,12 +327,15 @@ impl Hub {
                     build: protocol::build(),
                     warning,
                     config: (role == Role::Gui).then(|| self.config()),
+                    version: Some(self.version.to_string()),
+                    pid: Some(std::process::id()),
                 })
             }
             Command::List => Ok(Reply::Tabs { tabs: self.infos() }),
-            Command::New { pinned } => {
+            Command::New { pinned, cwd } => {
                 self.require_gui()?;
-                let tab = self.create(pinned)?;
+                let tab = self.create(pinned, cwd)?;
+                self.activate(&tab)?;
                 self.changed();
                 self.notify(Event::Select { tab: tab.clone() });
                 Ok(Reply::Tab { tab })

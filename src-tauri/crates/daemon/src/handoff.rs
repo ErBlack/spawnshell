@@ -187,6 +187,7 @@ unsafe fn adopt_fd(fd: RawFd) -> io::Result<OwnedFd> {
 pub(super) fn adopt(
     exit: mpsc::Sender<Exit>,
     notification: mpsc::Sender<TabNotification>,
+    version: &'static str,
 ) -> Result<Arc<Hub>> {
     let mut text = String::new();
     io::stdin().read_to_string(&mut text)?;
@@ -202,7 +203,7 @@ pub(super) fn adopt(
         size: manifest.size,
         active: manifest.active,
     };
-    let hub = Hub::new(listener, lock_file, restored, exit, notification);
+    let hub = Hub::new(listener, lock_file, restored, exit, notification, version);
     let mut state = hub.state.lock();
     for (adopted, history) in manifest.tabs.into_iter().zip(histories) {
         let output = hub.new_output(&adopted.entry.id, manifest.size);

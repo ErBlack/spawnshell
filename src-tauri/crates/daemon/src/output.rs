@@ -255,8 +255,8 @@ mod tests {
         output.mute();
         output.emit(b"\x1b]2;title\x07\x1b]9;after the restart began\x07");
         let signalled = signalled.lock();
-        assert!(signalled.titles.is_empty());
-        assert!(signalled.notifications.is_empty());
+        assert_eq!(signalled.titles, []);
+        assert_eq!(signalled.notifications, []);
     }
 
     fn replayed(bytes: &[u8]) -> vt100::Parser {
