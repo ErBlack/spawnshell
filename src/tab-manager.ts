@@ -181,8 +181,7 @@ export class TabManager {
   }
 
   close(id: string) {
-    const entry = this.entries().find(({ info }) => info.id === id);
-    reportFailure(commands.tabClose(id, entry?.label ?? ""));
+    reportFailure(commands.tabClose(id));
   }
 
   closeActive() {

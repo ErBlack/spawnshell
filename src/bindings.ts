@@ -7,7 +7,7 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 export const commands = {
 	tabsList: () => __TAURI_INVOKE<TabInfo[]>("tabs_list"),
 	tabNew: () => __TAURI_INVOKE<null>("tab_new"),
-	tabClose: (tab: string, label: string) => __TAURI_INVOKE<null>("tab_close", { tab, label }),
+	tabClose: (tab: string) => __TAURI_INVOKE<null>("tab_close", { tab }),
 	tabActivate: (tab: string) => __TAURI_INVOKE<null>("tab_activate", { tab }),
 	tabPlace: (tab: string, pinned: boolean, position: number | null) => __TAURI_INVOKE<null>("tab_place", { tab, pinned, position }),
 	tabRestart: (tab: string) => __TAURI_INVOKE<null>("tab_restart", { tab }),

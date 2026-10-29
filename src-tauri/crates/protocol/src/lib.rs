@@ -298,7 +298,6 @@ pub struct Seq {
 #[serde(rename_all = "snake_case")]
 pub enum Failure {
     Updating,
-    Pinned,
     #[serde(untagged)]
     Message(String),
 }
@@ -309,7 +308,6 @@ impl fmt::Display for Failure {
             Failure::Updating => {
                 formatter.write_str("Spawnshell is updating, try again in a moment")
             }
-            Failure::Pinned => formatter.write_str("the tab is pinned"),
             Failure::Message(message) => formatter.write_str(message),
         }
     }
@@ -457,10 +455,6 @@ mod tests {
         let updating = serde_json::to_string(&Err::<Reply, _>(Failure::Updating)).unwrap();
         let updating: Result<Reply, Failure> = serde_json::from_str(&updating).unwrap();
         assert_eq!(updating.err(), Some(Failure::Updating));
-
-        let pinned = serde_json::to_string(&Err::<Reply, _>(Failure::Pinned)).unwrap();
-        let pinned: Result<Reply, Failure> = serde_json::from_str(&pinned).unwrap();
-        assert_eq!(pinned.err(), Some(Failure::Pinned));
     }
 
     #[test]

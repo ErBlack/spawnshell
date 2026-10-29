@@ -71,6 +71,14 @@ impl Tab {
             self.entry.cwd = Some(cwd);
         }
     }
+
+    pub(super) fn unload(&mut self) {
+        self.refresh_cwd();
+        if let Some(proc) = self.proc.take() {
+            proc.terminate();
+        }
+        self.generation += 1;
+    }
 }
 
 pub(super) struct Gui {

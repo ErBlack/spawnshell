@@ -61,7 +61,12 @@ impl Hub {
     fn close(&self, id: &str, force: bool) -> Result<()> {
         let mut state = self.state.lock();
         let index = state.find(id)?;
-        ensure!(force || !state.tabs[index].pinned, Failure::Pinned);
+        if state.tabs[index].pinned && !force {
+            state.tabs[index].unload();
+            drop(state);
+            self.changed();
+            return Ok(());
+        }
         let mut tab = state.tabs.remove(index);
         let empty = state.tabs.is_empty();
         drop(state);
@@ -138,12 +143,8 @@ impl Hub {
             let index = state.find(id)?;
             let tab = &mut state.tabs[index];
             ensure!(tab.pinned, "only pinned tabs can be restarted");
-            tab.refresh_cwd();
             tab.output.lock().mute();
-            if let Some(proc) = tab.proc.take() {
-                proc.terminate();
-            }
-            tab.generation += 1;
+            tab.unload();
             let previous = std::mem::replace(&mut tab.output, Arc::clone(&output));
             (
                 previous,

@@ -52,9 +52,9 @@ enum Action {
         #[arg(long)]
         pinned: bool,
     },
-    /// Close a tab
+    /// Close a tab; a pinned tab is unloaded until it restarts
     Close {
-        /// Close a pinned tab too
+        /// Close a pinned tab instead of unloading it
         #[arg(long)]
         force: bool,
         #[command(flatten)]
@@ -238,14 +238,7 @@ fn send(action: Action, out: &mut impl Write) -> Result<()> {
         Action::Close {
             force,
             target: Target { tab },
-        } => {
-            return match client.call(&Command::Close { tab, force }) {
-                Err(error) if error.downcast_ref::<Failure>() == Some(&Failure::Pinned) => {
-                    bail!("the tab is pinned, pass --force to close it")
-                }
-                result => result.map(|_| ()),
-            };
-        }
+        } => Command::Close { tab, force },
         Action::Select(Target { tab }) => Command::Select { tab },
         Action::Pin(Target { tab }) => Command::Place {
             tab,

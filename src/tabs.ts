@@ -11,6 +11,7 @@ interface Button {
 
 export interface TabsActions {
   select(id: string): void;
+  close(id: string): void;
   menu(id: string | undefined): void;
   place(id: string, pinned: boolean, position: number): void;
   rename(id: string, title: string): void;
@@ -172,6 +173,9 @@ export class Tabs {
     root.append(caption, dot);
     root.addEventListener("mousedown", (event) => event.preventDefault());
     root.addEventListener("click", () => this.actions.select(id));
+    root.addEventListener("mouseup", (event) => {
+      if (event.button === 1) this.actions.close(id);
+    });
     root.addEventListener("dblclick", () => this.rename(id));
 
     const button = { root, caption, dot };

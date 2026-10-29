@@ -381,25 +381,25 @@ fn quitting_the_gui_closes_unpinned_tabs_and_keeps_pinned_ones() {
 }
 
 #[test]
-fn a_pinned_tab_closes_only_with_force() {
+fn closing_a_pinned_tab_unloads_it_unless_forced() {
     let env = Env::new("close");
     let _daemon = env.start();
     let mut gui = env.connect("gui");
     let pinned = new_tab(&mut gui, true);
     let loose = new_tab(&mut gui, false);
+    let pid = shell_pid(&mut gui, &pinned, "PINNED");
 
-    let refused = gui
-        .try_call(&json!({"command": "close", "tab": pinned}))
-        .unwrap();
-    assert_eq!(refused, json!({"Err": "pinned"}));
-    let output = env.spawnshell(&["close", "--tab", &pinned]);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("--force"),
-        "closing a pinned tab printed {stderr:?}"
-    );
+    assert!(succeeded(&env.spawnshell(&["close", "--tab", &pinned])));
+    assert!(wait_dead(pid), "unloading left the shell running");
     assert!(succeeded(&env.spawnshell(&["close", "--tab", &loose])));
-    assert_eq!(gui.tabs().len(), 1);
+    let tabs = gui.tabs();
+    assert_eq!(tabs.len(), 1);
+    assert_eq!(tabs[0]["id"], pinned);
+    assert_eq!(tabs[0]["alive"], false);
+
+    gui.call(&json!({"command": "restart", "tab": pinned}));
+    assert_ne!(shell_pid(&mut gui, &pinned, "AGAIN"), pid);
+
     assert!(succeeded(
         &env.spawnshell(&["close", "--force", "--tab", &pinned])
     ));

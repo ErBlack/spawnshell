@@ -33,6 +33,9 @@ async function main() {
           manager.restart(id);
         else manager.select(id);
       },
+      close(id) {
+        manager.close(id);
+      },
       menu(id) {
         const pinned = Boolean(id && manager.find(id)?.pinned);
         reportFailure(commands.showTabMenu(id ?? null, pinned));
