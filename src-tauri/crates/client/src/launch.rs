@@ -1,6 +1,5 @@
 use std::fs::{self, OpenOptions};
 use std::io;
-use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, Stdio};
 use std::thread;
@@ -8,9 +7,10 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
 use config::Config;
+use platform::process::{Build, build_of, detach};
 use protocol::{Command, Connection, Failure, Reply, Role};
 
-use super::REQUEST_TIMEOUT;
+use crate::REQUEST_TIMEOUT;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const HELLO_ATTEMPTS: u32 = 10;
@@ -18,9 +18,7 @@ const HELLO_DELAY: Duration = Duration::from_millis(100);
 const REOPEN: &str = "Spawnshell was moved or updated, quit and reopen it";
 
 fn log_dir() -> Result<PathBuf> {
-    dirs::home_dir()
-        .map(|home| home.join("Library/Logs").join(protocol::IDENTIFIER))
-        .context("can't find the home folder")
+    platform::paths::log_dir(protocol::IDENTIFIER)
 }
 
 fn log_file() -> Result<PathBuf> {
@@ -39,14 +37,7 @@ fn spawn_daemon() -> Result<Child> {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(log);
-    unsafe {
-        command.pre_exec(|| {
-            if libc::setsid() == -1 {
-                return Err(io::Error::last_os_error());
-            }
-            Ok(())
-        });
-    }
+    detach(&mut command);
     command
         .spawn()
         .context("can't start the background process")
@@ -118,7 +109,7 @@ pub(super) struct Joined {
 
 struct Greeting {
     connection: Connection,
-    build: Option<protocol::Build>,
+    build: Option<Build>,
     warning: Option<String>,
     config: Option<Config>,
 }
@@ -187,7 +178,7 @@ pub(super) fn join() -> Result<Joined> {
         return greeting.into_joined(None);
     }
     let exe = std::env::current_exe()?;
-    let Some(target) = protocol::build_of(&exe) else {
+    let Some(target) = build_of(&exe) else {
         return greeting.into_joined(Some(REOPEN.to_string()));
     };
     if greeting.build != Some(target) {

@@ -4,7 +4,11 @@ use std::io;
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
+
+#[cfg_attr(target_os = "macos", path = "install/macos.rs")]
+#[cfg_attr(not(target_os = "macos"), path = "install/other.rs")]
+mod imp;
 
 const NAME: &str = "spawnshell";
 
@@ -17,9 +21,7 @@ pub fn install() -> Result<PathBuf> {
 }
 
 fn install_in(dir: &Path, target: &Path) -> Result<PathBuf> {
-    if target.to_string_lossy().contains("/AppTranslocation/") {
-        bail!("macOS runs Spawnshell from a temporary copy; move it to /Applications first");
-    }
+    imp::check_location(target)?;
     let link = dir.join(NAME);
     if fs::read_link(&link).is_ok_and(|current| current == target) {
         return Ok(link);
@@ -64,20 +66,6 @@ mod tests {
         assert_eq!(install_in(&bin, Path::new("/b")).unwrap(), link);
         assert_eq!(fs::read_link(&link).unwrap(), Path::new("/b"));
         let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn a_translocated_app_is_not_linked() {
-        let dir = std::env::temp_dir().join(format!(
-            "spawnshell-install-translocated-{}",
-            std::process::id()
-        ));
-        let translocated = Path::new(
-            "/private/var/folders/x/T/AppTranslocation/1F2E/d/Spawnshell.app/Contents/MacOS/spawnshell",
-        );
-
-        assert!(install_in(&dir, translocated).is_err());
-        assert!(!dir.exists());
     }
 
     #[test]

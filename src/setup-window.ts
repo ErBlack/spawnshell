@@ -1,4 +1,4 @@
-import { commands, events } from "./bindings.ts";
+import { commands, events } from "./backend.ts";
 
 export async function setupWindow(
   pane: HTMLElement,

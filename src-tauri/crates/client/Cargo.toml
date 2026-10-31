@@ -1,0 +1,19 @@
+[package]
+name = "spawnshell-client"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "client"
+
+[dependencies]
+config.workspace = true
+protocol.workspace = true
+platform.workspace = true
+anyhow.workspace = true
+log.workspace = true
+parking_lot.workspace = true
+tokio = { version = "1.53.2", features = ["rt-multi-thread", "sync", "time"] }
+
+[lints]
+workspace = true

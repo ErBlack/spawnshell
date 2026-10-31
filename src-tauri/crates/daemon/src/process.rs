@@ -1,10 +1,11 @@
-use std::os::fd::{AsRawFd, OwnedFd};
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use platform::process::{Pid, child_running, exists, hang_up, kill, reap};
+use platform::pty::Master;
+
 use super::flow::{Gate, Wanted};
-use crate::pty;
 
 const TERMINATE_GRACE: Duration = Duration::from_secs(2);
 
@@ -15,30 +16,30 @@ pub(super) enum Ownership {
 }
 
 pub(super) struct Proc {
-    pub(super) pid: i32,
-    pub(super) master: OwnedFd,
+    pub(super) pid: Pid,
+    pub(super) master: Master,
     pub(super) input: mpsc::Sender<Vec<u8>>,
     pub(super) gate: Gate,
     pub(super) ownership: Ownership,
 }
 
-fn alive(pid: i32, ownership: Ownership) -> bool {
+fn alive(pid: Pid, ownership: Ownership) -> bool {
     match ownership {
-        Ownership::Child => pty::child_running(pid),
-        Ownership::Adopted => pty::exists(pid),
+        Ownership::Child => child_running(pid),
+        Ownership::Adopted => exists(pid),
     }
 }
 
-pub(super) fn hang_up(
-    pid: i32,
-    group: Option<i32>,
+pub(super) fn shut_down(
+    pid: Pid,
+    foreground: Option<Pid>,
     ownership: Ownership,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
-        if let Some(group) = group.filter(|&group| group != pid) {
-            pty::signal(-group, libc::SIGHUP);
+        if let Some(foreground) = foreground.filter(|&foreground| foreground != pid) {
+            hang_up(foreground);
         }
-        pty::signal(-pid, libc::SIGHUP);
+        hang_up(pid);
         let deadline = Instant::now() + TERMINATE_GRACE;
         while Instant::now() < deadline {
             if !alive(pid, ownership) {
@@ -46,9 +47,9 @@ pub(super) fn hang_up(
             }
             thread::sleep(Duration::from_millis(20));
         }
-        pty::signal(-pid, libc::SIGKILL);
+        kill(pid);
         if ownership == Ownership::Child {
-            pty::reap(pid);
+            reap(pid);
         }
     })
 }
@@ -56,14 +57,14 @@ pub(super) fn hang_up(
 impl Proc {
     pub(super) fn terminate(self) -> thread::JoinHandle<()> {
         self.gate.want(Wanted::Stop);
-        let group = pty::foreground(self.master.as_raw_fd());
-        hang_up(self.pid, group, self.ownership)
+        let foreground = self.master.foreground();
+        shut_down(self.pid, foreground, self.ownership)
     }
 
     pub(super) fn finished(self) {
         self.gate.want(Wanted::Stop);
         if self.ownership == Ownership::Child {
-            thread::spawn(move || pty::reap(self.pid));
+            thread::spawn(move || reap(self.pid));
         }
     }
 }

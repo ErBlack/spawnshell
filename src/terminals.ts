@@ -1,16 +1,11 @@
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { type ITerminalOptions, Terminal } from "@xterm/xterm";
-import { commands, type Font } from "./bindings.ts";
+import { commands, type Font, openUrl } from "./backend.ts";
 import { reportFailure } from "./report-failure.ts";
 
 interface Size {
   rows: number;
   cols: number;
-}
-
-interface Measured extends Size {
-  rowHeight: number;
 }
 
 const THEME = {
@@ -48,7 +43,7 @@ function openLink(event: MouseEvent, uri: string) {
   if (event.metaKey) openUrl(uri);
 }
 
-function measure(terminal: Terminal): Measured | undefined {
+function measure(terminal: Terminal): Size | undefined {
   const pane = terminal.element?.parentElement;
   const screen = terminal.element?.querySelector<HTMLElement>(".xterm-screen");
   const { rows, cols } = terminal;
@@ -68,7 +63,6 @@ function measure(terminal: Terminal): Measured | undefined {
   return {
     rows: Math.max(1, Math.floor(height / cellHeight)),
     cols: Math.max(2, Math.floor(width / cellWidth)),
-    rowHeight: cellHeight,
   };
 }
 
@@ -79,8 +73,12 @@ export class Terminals {
   private size: Size = { rows: 24, cols: 80 };
   private resized: Promise<void> = Promise.resolve();
 
-  constructor(scrollback: number) {
+  private constructor(scrollback: number) {
     this.scrollback = scrollback;
+  }
+
+  static async load(): Promise<Terminals> {
+    return new Terminals(await commands.historyLines());
   }
 
   create(container: HTMLElement): Terminal {
@@ -129,11 +127,7 @@ export class Terminals {
     }
   }
 
-  private apply({ rowHeight, ...measured }: Measured) {
-    document.documentElement.style.setProperty(
-      "--terminal-row",
-      `${rowHeight}px`,
-    );
+  private apply(measured: Size) {
     if (measured.rows === this.size.rows && measured.cols === this.size.cols)
       return;
     this.size = measured;

@@ -10,17 +10,14 @@ mod notifications;
 mod output;
 mod paths;
 mod process;
-mod pty;
 mod save;
 mod server;
 mod session;
 mod settings;
+mod shell;
 
-use std::fs::{self, File, OpenOptions};
+use std::fs;
 use std::io::Write;
-use std::os::fd::AsRawFd;
-use std::os::unix::fs::PermissionsExt;
-use std::os::unix::net::UnixListener;
 use std::path::Path;
 use std::process::ExitCode;
 use std::sync::{Arc, mpsc};
@@ -28,13 +25,15 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, ensure};
+use platform::Size;
+use platform::ipc::Lock;
+use platform::process::Termination;
 
 use self::flow::Wanted;
 use self::hub::{Hub, Restored, Tab};
 use self::launch::Launch;
 use self::notifications::TabNotification;
 use self::process::Ownership;
-use self::pty::Size;
 use self::save::{restore_history, set_aside};
 
 const SAVE_INTERVAL: Duration = Duration::from_secs(15);
@@ -53,61 +52,24 @@ fn report(error: &anyhow::Error) {
     eprintln!("spawnshell daemon: {error:#}");
 }
 
-fn block_signals() -> libc::sigset_t {
-    unsafe {
-        let mut set: libc::sigset_t = std::mem::zeroed();
-        libc::sigemptyset(&raw mut set);
-        for signal in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
-            libc::sigaddset(&raw mut set, signal);
-        }
-        libc::pthread_sigmask(libc::SIG_BLOCK, &raw const set, std::ptr::null_mut());
-        set
-    }
-}
-
-fn watch_signals(exit: mpsc::Sender<Exit>, set: libc::sigset_t) {
+fn watch_termination(exit: mpsc::Sender<Exit>, termination: Termination) {
     thread::spawn(move || {
-        let mut signal = 0;
-        while unsafe { libc::sigwait(&raw const set, &raw mut signal) } != 0 {}
+        termination.wait();
         let _ = exit.send(Exit::Signal);
     });
 }
 
-fn bind(socket: &Path) -> std::io::Result<UnixListener> {
-    let _ = fs::remove_file(socket);
-    let previous = unsafe { libc::umask(0o077) };
-    let listener = UnixListener::bind(socket);
-    unsafe {
-        libc::umask(previous);
-    }
-    let listener = listener?;
-    fs::set_permissions(socket, fs::Permissions::from_mode(0o600))?;
-    Ok(listener)
-}
-
-fn lock(file: &File, path: &Path) -> Result<bool> {
+fn acquire(lock: &Lock, path: &Path) -> Result<bool> {
     let deadline = Instant::now() + LOCK_WAIT;
     loop {
-        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
-            return Ok(true);
-        }
-        let error = std::io::Error::last_os_error();
-        if error.raw_os_error() != Some(libc::EWOULDBLOCK) {
-            return Err(error).with_context(|| format!("can't lock {}", path.display()));
-        }
-        if Instant::now() >= deadline {
-            return Ok(false);
+        let locked = lock
+            .try_lock()
+            .with_context(|| format!("can't lock {}", path.display()))?;
+        if locked || Instant::now() >= deadline {
+            return Ok(locked);
         }
         thread::sleep(Duration::from_millis(50));
     }
-}
-
-fn open_lock(path: &Path) -> std::io::Result<File> {
-    OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .write(true)
-        .open(path)
 }
 
 fn take_over_previous_data(dir: &Path) -> Result<()> {
@@ -116,15 +78,15 @@ fn take_over_previous_data(dir: &Path) -> Result<()> {
         return Ok(());
     }
     let lock_path = previous.join(paths::LOCK_FILE);
-    let lock_file = match open_lock(&lock_path) {
-        Ok(file) => file,
+    let lock = match Lock::open(&lock_path) {
+        Ok(lock) => lock,
         Err(_) if dir.exists() => return Ok(()),
         Err(error) => {
             return Err(error).with_context(|| format!("can't open {}", lock_path.display()));
         }
     };
     ensure!(
-        lock(&lock_file, &lock_path)?,
+        acquire(&lock, &lock_path)?,
         "the previous version, Summon, is still running: quit it with \"Quit and Stop Pinned Tabs\" and open Spawnshell again"
     );
     if dir.exists() {
@@ -143,14 +105,12 @@ fn fresh(
     take_over_previous_data(&dir)?;
     fs::create_dir_all(&dir).with_context(|| format!("can't create {}", dir.display()))?;
     let lock_path = paths::lock_file()?;
-    let lock_file =
-        open_lock(&lock_path).with_context(|| format!("can't open {}", lock_path.display()))?;
-    if !lock(&lock_file, &lock_path)? {
+    let lock =
+        Lock::open(&lock_path).with_context(|| format!("can't open {}", lock_path.display()))?;
+    if !acquire(&lock, &lock_path)? {
         return Ok(None);
     }
-    let socket = protocol::socket()?;
-    let listener =
-        bind(&socket).with_context(|| format!("can't listen on {}", socket.display()))?;
+    let listener = server::listen()?;
 
     let session_file = paths::session_file()?;
     let history_dir = paths::history_dir()?;
@@ -170,7 +130,7 @@ fn fresh(
         size,
         active: saved.selected,
     };
-    let hub = Hub::new(listener, lock_file, restored, exit, notification, version);
+    let hub = Hub::new(listener, lock, restored, exit, notification, version);
     for (entry, history) in saved.tabs.into_iter().zip(histories) {
         let output = hub.new_output(&entry.id, size);
         let launch = Launch {
@@ -200,7 +160,8 @@ fn fresh(
 }
 
 pub fn run(adopting: bool, version: &'static str) -> ExitCode {
-    let signals = block_signals();
+    protocol::build();
+    let termination = Termination::block();
     let (exit, exits) = mpsc::channel();
     let (notification, notifications) = mpsc::channel();
     let started = if adopting {
@@ -223,7 +184,7 @@ pub fn run(adopting: bool, version: &'static str) -> ExitCode {
         hub.resume_all();
     }
 
-    watch_signals(exit, signals);
+    watch_termination(exit, termination);
     if let Err(error) = hub.watch_config() {
         report(&error);
     }

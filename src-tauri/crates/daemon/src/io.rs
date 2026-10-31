@@ -1,11 +1,10 @@
-use std::fs::File;
 use std::io::{self, Read, Write};
-use std::os::fd::{AsRawFd, OwnedFd};
 use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
+use platform::pty::{Master, Reader};
 
 use super::flow::{Gate, Wanted};
 use super::output::Output;
@@ -13,7 +12,7 @@ use super::report;
 
 const FLUSH_INTERVAL: Duration = Duration::from_millis(8);
 const MAX_BATCH: usize = 64 * 1024;
-const IDLE_POLL: Duration = Duration::from_millis(100);
+const IDLE_WAIT: Duration = Duration::from_millis(100);
 
 struct Batch {
     output: Arc<Mutex<Output>>,
@@ -48,17 +47,14 @@ impl Batch {
         }
     }
 
-    fn poll_timeout(&self) -> libc::c_int {
-        let wait = self.deadline.map_or(IDLE_POLL, |deadline| {
+    fn wait_timeout(&self) -> Duration {
+        self.deadline.map_or(IDLE_WAIT, |deadline| {
             deadline.saturating_duration_since(Instant::now())
-        });
-        let millis = wait.as_micros().div_ceil(1000);
-        libc::c_int::try_from(millis).unwrap_or(libc::c_int::MAX)
+        })
     }
 }
 
-fn read_until_done(reader: &mut File, gate: &Gate, batch: &mut Batch) {
-    let fd = reader.as_raw_fd();
+fn read_until_done(reader: &mut Reader, gate: &Gate, batch: &mut Batch) {
     let mut buffer = [0u8; 8192];
     loop {
         match gate.current() {
@@ -71,26 +67,19 @@ fn read_until_done(reader: &mut File, gate: &Gate, batch: &mut Batch) {
             }
             Wanted::Run => {}
         }
-        let mut poll = libc::pollfd {
-            fd,
-            events: libc::POLLIN,
-            revents: 0,
-        };
-        let ready = unsafe { libc::poll(&raw mut poll, 1, batch.poll_timeout()) };
-        if ready < 0 {
-            let error = io::Error::last_os_error();
-            if error.kind() == io::ErrorKind::Interrupted {
-                continue;
+        let ready = match reader.wait_readable(batch.wait_timeout()) {
+            Ok(ready) => ready,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error) => {
+                report(&anyhow::Error::new(error).context("can't wait for terminal output"));
+                return;
             }
-            report(&anyhow::Error::new(error).context("can't wait for terminal output"));
-            return;
-        }
-        if ready > 0 {
+        };
+        if ready {
             match reader.read(&mut buffer) {
                 Ok(0) => return,
                 Ok(count) => batch.add(&buffer[..count]),
                 Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
-                Err(error) if error.raw_os_error() == Some(libc::EIO) => return,
                 Err(error) => {
                     report(&anyhow::Error::new(error).context("can't read terminal output"));
                     return;
@@ -102,12 +91,12 @@ fn read_until_done(reader: &mut File, gate: &Gate, batch: &mut Batch) {
 }
 
 pub(super) fn start_io(
-    master: &OwnedFd,
+    master: &Master,
     output: Arc<Mutex<Output>>,
     gate: Gate,
     on_eof: impl FnOnce() + Send + 'static,
 ) -> io::Result<()> {
-    let mut reader = File::from(master.try_clone()?);
+    let mut reader = master.reader()?;
     thread::spawn(move || {
         let mut batch = Batch {
             output,
@@ -122,8 +111,8 @@ pub(super) fn start_io(
     Ok(())
 }
 
-pub(super) fn start_writer(master: &OwnedFd) -> io::Result<mpsc::Sender<Vec<u8>>> {
-    let mut writer = File::from(master.try_clone()?);
+pub(super) fn start_writer(master: &Master) -> io::Result<mpsc::Sender<Vec<u8>>> {
+    let mut writer = master.writer()?;
     let (tx, rx) = mpsc::channel::<Vec<u8>>();
     thread::spawn(move || {
         for chunk in rx {
@@ -135,21 +124,24 @@ pub(super) fn start_writer(master: &OwnedFd) -> io::Result<mpsc::Sender<Vec<u8>>
     Ok(tx)
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use std::path::Path;
     use std::time::Instant;
 
+    use platform::Size;
+    use platform::process::{self, Pid};
+    use platform::pty;
+
     use super::super::flow::Wanted;
     use super::*;
-    use crate::pty::{self, Size};
 
     struct Run {
         collected: Arc<Mutex<Vec<u8>>>,
         output: Arc<Mutex<Output>>,
         done: mpsc::Receiver<()>,
         gate: Gate,
-        pid: i32,
+        pid: Pid,
         input: mpsc::Sender<Vec<u8>>,
     }
 
@@ -161,7 +153,7 @@ mod tests {
         fn wait(&self) -> String {
             let finished = self.done.recv_timeout(Duration::from_secs(15)).is_ok();
             assert!(finished, "aggregator thread did not finish");
-            pty::reap(self.pid);
+            process::reap(self.pid);
             self.text()
         }
     }
@@ -272,7 +264,7 @@ mod tests {
             "output did not resume after unpausing"
         );
 
-        pty::signal(session.pid, libc::SIGKILL);
+        process::kill(session.pid);
         session.wait();
     }
 
@@ -291,8 +283,8 @@ mod tests {
         );
         let pid = session.pid;
         drop(session);
-        pty::signal(pid, libc::SIGKILL);
-        pty::reap(pid);
+        process::kill(pid);
+        process::reap(pid);
     }
 
     #[test]
@@ -303,7 +295,7 @@ mod tests {
         let early = session.text();
         assert!(early.contains('x'), "a steady trickle was withheld");
 
-        pty::signal(session.pid, libc::SIGKILL);
+        process::kill(session.pid);
         session.wait();
     }
 
@@ -318,7 +310,7 @@ mod tests {
             session.done.try_recv().is_err(),
             "shell exited before the check, test proves nothing"
         );
-        pty::signal(session.pid, libc::SIGKILL);
+        process::kill(session.pid);
         session.wait();
     }
 }

@@ -1,12 +1,6 @@
-#![expect(
-    clippy::needless_pass_by_value,
-    reason = "Tauri commands receive their arguments by value"
-)]
-
 use config::Config;
 use parking_lot::Mutex;
 use serde::Serialize;
-use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager};
 
 use crate::shortcut::Outcome;
@@ -46,13 +40,21 @@ impl From<&Config> for Appearance {
 struct Shared {
     config: Option<Config>,
     shortcut: Option<String>,
-    watcher: Option<Channel<Appearance>>,
+    watcher: Option<Box<dyn Fn(Appearance) + Send>>,
 }
 
 #[derive(Default)]
 pub struct GuiConfig(Mutex<Shared>);
 
 impl GuiConfig {
+    pub fn watch(&self, on_change: impl Fn(Appearance) + Send + 'static) {
+        let mut shared = self.0.lock();
+        if let Some(config) = &shared.config {
+            on_change(Appearance::from(config));
+        }
+        shared.watcher = Some(Box::new(on_change));
+    }
+
     pub fn height(&self) -> u32 {
         self.0
             .lock()
@@ -62,18 +64,18 @@ impl GuiConfig {
     }
 }
 
-pub fn apply(app: &AppHandle, config: Config) {
+pub fn apply(app: &AppHandle, config: &Config) {
     use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
     let gui_config = app.state::<GuiConfig>();
     let (previous, registered) = {
         let mut shared = gui_config.0.lock();
         let previous = shared.config.replace(config.clone());
-        let appearance = Appearance::from(&config);
+        let appearance = Appearance::from(config);
         if let Some(watcher) = &shared.watcher
             && previous.as_ref().map(Appearance::from) != Some(appearance.clone())
         {
-            let _ = watcher.send(appearance);
+            watcher(appearance);
         }
         (previous, shared.shortcut.clone())
     };
@@ -107,14 +109,4 @@ pub fn apply(app: &AppHandle, config: Config) {
     if previous.is_none_or(|previous| previous.height != config.height) {
         crate::window::position(app);
     }
-}
-
-#[tauri::command]
-#[specta::specta]
-pub fn watch_appearance(gui_config: tauri::State<'_, GuiConfig>, on_change: Channel<Appearance>) {
-    let mut shared = gui_config.0.lock();
-    if let Some(config) = &shared.config {
-        let _ = on_change.send(Appearance::from(config));
-    }
-    shared.watcher = Some(on_change);
 }

@@ -1,0 +1,21 @@
+[package]
+name = "spawnshell-platform"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "platform"
+
+[dependencies]
+anyhow.workspace = true
+dirs.workspace = true
+serde.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

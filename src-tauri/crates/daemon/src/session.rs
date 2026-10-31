@@ -3,11 +3,11 @@ use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use platform::Size;
 use serde::{Deserialize, Serialize};
 
 use crate::files;
 use crate::paths;
-use crate::pty::Size;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct TabEntry {

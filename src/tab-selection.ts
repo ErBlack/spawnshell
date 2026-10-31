@@ -1,4 +1,4 @@
-import type { TabInfo } from "./bindings.ts";
+import type { TabInfo } from "./backend.ts";
 
 export class TabSelection {
   items: readonly TabInfo[] = [];

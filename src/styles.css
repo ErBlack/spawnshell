@@ -5,11 +5,6 @@
   --color-text: #8b95a3;
   --color-accent: #6cb5de;
   --color-text-bright: color-mix(in oklab, var(--color-text), white 80%);
-  --color-text-muted: color-mix(
-    in oklab,
-    var(--color-text),
-    var(--color-background) 40%
-  );
   --color-border: color-mix(in srgb, var(--color-text) 25%, transparent);
   --color-lifted: color-mix(
     in oklab,
@@ -78,10 +73,6 @@ body {
   transition: opacity var(--duration);
 }
 
-.pane > * {
-  grid-area: 1 / 1;
-}
-
 .pane[hidden] {
   visibility: hidden;
   opacity: 0;
@@ -89,38 +80,6 @@ body {
 
 .pane[data-stopped] .xterm {
   opacity: var(--opacity-stopped);
-}
-
-.pane-stopped {
-  position: relative;
-  align-self: end;
-  block-size: var(--terminal-row);
-  display: flex;
-  align-items: center;
-  gap: var(--gap-large);
-  color: var(--color-text);
-}
-
-.pane-stopped[hidden] {
-  display: none;
-}
-
-.pane-restart {
-  all: unset;
-  display: flex;
-  gap: var(--gap-small);
-  color: var(--color-accent);
-  cursor: default;
-  transition: color var(--duration);
-}
-
-.pane-restart:hover {
-  color: var(--color-text-bright);
-}
-
-.pane-restart kbd {
-  font: inherit;
-  color: var(--color-text-muted);
 }
 
 #tabbar {
@@ -317,8 +276,7 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .tab,
-  .pane,
-  .pane-restart {
+  .pane {
     transition: none;
   }
 }

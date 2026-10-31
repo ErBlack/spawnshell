@@ -1,4 +1,4 @@
-import { commands, type TabInfo } from "./bindings.ts";
+import { commands, type TabInfo } from "./backend.ts";
 import { errorMessage } from "./error-message.ts";
 import { reportFailure } from "./report-failure.ts";
 import { showError } from "./show-error.ts";
@@ -186,6 +186,15 @@ export class TabManager {
 
   closeActive() {
     if (this.active) this.close(this.active);
+  }
+
+  showMenu(id: string | undefined) {
+    const pinned = Boolean(id && this.find(id)?.pinned);
+    reportFailure(commands.showTabMenu(id ?? null, pinned));
+  }
+
+  save() {
+    reportFailure(commands.sessionSave());
   }
 
   restart(id: string) {

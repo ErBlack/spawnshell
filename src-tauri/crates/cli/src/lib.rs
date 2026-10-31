@@ -10,9 +10,9 @@ use clap::builder::NonEmptyStringValueParser;
 use clap::error::ErrorKind;
 use clap::{Args, CommandFactory, FromArgMatches, Parser, Subcommand};
 use config::Key;
+use platform::install;
 use protocol::{Command, Connection, Failure, Reply, Role, TabInfo};
 
-pub mod install;
 mod version;
 
 const TIMEOUT: Duration = Duration::from_secs(15);
@@ -344,7 +344,6 @@ pub fn run(version: &'static str, description: &str) -> ExitCode {
 mod tests {
     use std::fs;
     use std::io::BufReader;
-    use std::os::unix::net::{UnixListener, UnixStream};
     use std::path::PathBuf;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -353,6 +352,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use clap::CommandFactory;
+    use platform::ipc::{Listener, Stream};
     use protocol::{Command, Failure, Frame, FromDaemon, Reply, Request};
 
     use super::{Cli, Client, UPDATE_WAIT};
@@ -362,7 +362,7 @@ mod tests {
         Cli::command().debug_assert();
     }
 
-    fn serve(stream: UnixStream, commands: &AtomicUsize, refusals: usize, done: &Sender<usize>) {
+    fn serve(stream: Stream, commands: &AtomicUsize, refusals: usize, done: &Sender<usize>) {
         let mut reader = BufReader::new(stream.try_clone().unwrap());
         let mut writer = stream;
         while let Ok(Frame::Message(bytes)) = protocol::read(&mut reader) {
@@ -392,7 +392,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         let socket = dir.join("daemon.sock");
-        let listener = UnixListener::bind(&socket).unwrap();
+        let listener = Listener::bind(&socket).unwrap();
         let (done, answered) = mpsc::channel();
         thread::spawn(move || {
             let commands = Arc::new(AtomicUsize::new(0));

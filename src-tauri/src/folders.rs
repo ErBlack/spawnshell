@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
+use client::Daemon;
 use parking_lot::Mutex;
 use tauri::{AppHandle, Manager, Url};
 
-use crate::client::Daemon;
 use crate::window;
 
 #[derive(Default)]
@@ -28,7 +28,7 @@ pub fn open_waiting(app: &AppHandle) {
     let mut folders = std::mem::take(&mut *waiting.0.lock()).into_iter();
     let mut opened = false;
     while let Some(cwd) = folders.next() {
-        if let Err(cwd) = daemon.new_tab_in(app, cwd) {
+        if let Err(cwd) = daemon.new_tab_in(cwd) {
             waiting
                 .0
                 .lock()

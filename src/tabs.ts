@@ -1,4 +1,4 @@
-import type { TabBar } from "./bindings.ts";
+import type { TabBar } from "./backend.ts";
 import { TabDrag } from "./tab-drag.ts";
 import type { TabEntry } from "./tab-manager.ts";
 import { TabMotion } from "./tab-motion.ts";

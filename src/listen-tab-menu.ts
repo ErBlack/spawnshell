@@ -1,4 +1,4 @@
-import { events } from "./bindings.ts";
+import { events } from "./backend.ts";
 import type { TabManager } from "./tab-manager.ts";
 import type { Tabs } from "./tabs.ts";
 

@@ -1,6 +1,3 @@
-use std::fs::File;
-use std::os::fd::AsRawFd;
-use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, mpsc};
@@ -9,16 +6,19 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, ensure};
 use parking_lot::{Condvar, Mutex};
-use protocol::{Event, Frame, FromDaemon, TabInfo};
+use platform::Size;
+use platform::ipc::{Listener, Lock};
+use platform::process::{self, Pid};
+use protocol::{Event, Frame, TabInfo};
 
 use super::flow::Wanted;
-use super::launch::Shell;
 use super::notifications::TabNotification;
 use super::output::{Output, Signal, Signals, Sink};
 use super::process::Proc;
+use super::server::event_frame;
 use super::settings::Settings;
+use super::shell::Shell;
 use super::{Exit, report};
-use crate::pty::{self, Size};
 use crate::session::TabEntry;
 
 const TAB_POLL_INTERVAL: Duration = Duration::from_secs(1);
@@ -50,24 +50,24 @@ impl Tab {
             return title.to_string();
         }
         self.foreground()
-            .and_then(pty::process_name)
+            .and_then(process::name)
             .unwrap_or_default()
     }
 
     pub(super) fn resize(&self, size: Size) {
         self.output.lock().resize(size);
         if let Some(proc) = &self.proc {
-            let _ = pty::resize(proc.master.as_raw_fd(), size);
+            let _ = proc.master.resize(size);
         }
     }
 
-    fn foreground(&self) -> Option<i32> {
+    fn foreground(&self) -> Option<Pid> {
         let proc = self.proc.as_ref()?;
-        pty::foreground(proc.master.as_raw_fd()).or(Some(proc.pid))
+        proc.master.foreground().or(Some(proc.pid))
     }
 
     pub(super) fn refresh_cwd(&mut self) {
-        if let Some(cwd) = self.foreground().and_then(pty::process_cwd) {
+        if let Some(cwd) = self.foreground().and_then(process::cwd) {
             self.entry.cwd = Some(cwd);
         }
     }
@@ -76,6 +76,7 @@ impl Tab {
         self.refresh_cwd();
         if let Some(proc) = self.proc.take() {
             proc.terminate();
+            self.output.lock().stop();
         }
         self.generation += 1;
     }
@@ -120,8 +121,8 @@ pub(super) struct Restored {
 pub(super) struct Hub {
     pub(super) state: Mutex<State>,
     pub(super) gui: Arc<Mutex<Option<Gui>>>,
-    pub(super) listener: UnixListener,
-    pub(super) lock_file: File,
+    pub(super) listener: Listener,
+    pub(super) lock: Lock,
     pub(super) upgrading: AtomicBool,
     stopping: AtomicBool,
     pub(super) exit: mpsc::Sender<Exit>,
@@ -160,10 +161,6 @@ fn sink(gui: &Arc<Mutex<Option<Gui>>>, tab: &str) -> Sink {
     })
 }
 
-pub(super) fn event_frame(event: Event) -> Frame {
-    protocol::message(&FromDaemon::Event { event })
-}
-
 fn send_event(gui: &Mutex<Option<Gui>>, event: Event) -> bool {
     match gui.lock().as_ref() {
         Some(gui) => gui.tx.send(event_frame(event)).is_ok(),
@@ -194,8 +191,8 @@ fn signals(
 
 impl Hub {
     pub(super) fn new(
-        listener: UnixListener,
-        lock_file: File,
+        listener: Listener,
+        lock: Lock,
         restored: Restored,
         exit: mpsc::Sender<Exit>,
         notification: mpsc::Sender<TabNotification>,
@@ -210,7 +207,7 @@ impl Hub {
             }),
             gui: Arc::new(Mutex::new(None)),
             listener,
-            lock_file,
+            lock,
             upgrading: AtomicBool::new(false),
             stopping: AtomicBool::new(false),
             exit,
@@ -271,7 +268,7 @@ impl Hub {
             alive: tab.proc.is_some(),
             active,
             title: tab.entry.title.clone(),
-            process: pid.and_then(pty::process_name),
+            process: pid.and_then(process::name),
             cwd: tab
                 .entry
                 .cwd
@@ -353,6 +350,9 @@ impl Hub {
         };
         if let Some(proc) = state.tabs[index].proc.take() {
             proc.finished();
+        }
+        if state.tabs[index].pinned {
+            state.tabs[index].output.lock().stop();
         }
         let removed = (!state.tabs[index].pinned).then(|| state.tabs.remove(index));
         let empty = state.tabs.is_empty();

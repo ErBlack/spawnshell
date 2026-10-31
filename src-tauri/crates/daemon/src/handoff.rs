@@ -1,8 +1,4 @@
-use std::fs::File;
 use std::io::{self, BufRead, BufReader, Read, Write};
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
-use std::os::unix::net::UnixListener;
-use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::atomic::Ordering;
@@ -11,6 +7,11 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail, ensure};
+use platform::Size;
+use platform::handoff::{self, Handle};
+use platform::ipc::{Listener, Lock};
+use platform::process::{Pid, detach};
+use platform::pty::Master;
 use serde::{Deserialize, Serialize};
 
 use super::Exit;
@@ -20,7 +21,6 @@ use super::modes::ProgramTitle;
 use super::notifications::TabNotification;
 use super::process::Ownership;
 use super::save::restore_history;
-use crate::pty::{self, Size};
 use crate::session::{self, TabEntry};
 
 const PARK_TIMEOUT: Duration = Duration::from_secs(2);
@@ -28,8 +28,8 @@ const HANDOFF_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Serialize, Deserialize)]
 struct Manifest {
-    listener: RawFd,
-    lock: RawFd,
+    listener: Handle,
+    lock: Handle,
     size: Size,
     active: Option<String>,
     tabs: Vec<ManifestTab>,
@@ -46,7 +46,7 @@ struct ManifestTab {
     #[serde(default)]
     modes: String,
     program_title: Option<ProgramTitle>,
-    process: Option<(i32, RawFd)>,
+    process: Option<(Pid, Handle)>,
 }
 
 impl Hub {
@@ -91,8 +91,8 @@ impl Hub {
                 .map(|tab| (tab.entry.id.clone(), tab.output.lock().history().to_vec()))
                 .collect();
             let manifest = Manifest {
-                listener: self.listener.as_raw_fd(),
-                lock: self.lock_file.as_raw_fd(),
+                listener: self.listener.handle(),
+                lock: self.lock.handle(),
                 size: state.size,
                 active: state.active.clone(),
                 tabs: state.tabs.iter().map(manifest_tab).collect(),
@@ -120,18 +120,18 @@ fn manifest_tab(tab: &Tab) -> ManifestTab {
         process: tab
             .proc
             .as_ref()
-            .map(|proc| (proc.pid, proc.master.as_raw_fd())),
+            .map(|proc| (proc.pid, proc.master.handle())),
     }
 }
 
 fn spawn_successor(exe: &Path, manifest: &Manifest) -> Result<()> {
     let json = serde_json::to_vec(manifest)?;
-    let mut fds = vec![manifest.listener, manifest.lock];
-    fds.extend(
+    let mut handles = vec![manifest.listener, manifest.lock];
+    handles.extend(
         manifest
             .tabs
             .iter()
-            .filter_map(|tab| tab.process.map(|(_, fd)| fd)),
+            .filter_map(|tab| tab.process.map(|(_, handle)| handle)),
     );
     let mut command = std::process::Command::new(exe);
     command
@@ -140,15 +140,8 @@ fn spawn_successor(exe: &Path, manifest: &Manifest) -> Result<()> {
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit());
-    unsafe {
-        command.pre_exec(move || {
-            pty::check(libc::setsid())?;
-            for &fd in &fds {
-                pty::set_cloexec(fd, false)?;
-            }
-            Ok(())
-        });
-    }
+    detach(&mut command);
+    handoff::inherit(&mut command, handles);
     let mut child = command
         .spawn()
         .with_context(|| format!("can't start {}", exe.display()))?;
@@ -179,11 +172,6 @@ fn spawn_successor(exe: &Path, manifest: &Manifest) -> Result<()> {
     ready
 }
 
-unsafe fn adopt_fd(fd: RawFd) -> io::Result<OwnedFd> {
-    pty::set_cloexec(fd, true)?;
-    Ok(unsafe { OwnedFd::from_raw_fd(fd) })
-}
-
 pub(super) fn adopt(
     exit: mpsc::Sender<Exit>,
     notification: mpsc::Sender<TabNotification>,
@@ -192,8 +180,8 @@ pub(super) fn adopt(
     let mut text = String::new();
     io::stdin().read_to_string(&mut text)?;
     let manifest: Manifest = serde_json::from_str(&text)?;
-    let listener = UnixListener::from(unsafe { adopt_fd(manifest.listener) }?);
-    let lock_file = File::from(unsafe { adopt_fd(manifest.lock) }?);
+    let listener = unsafe { Listener::adopt(manifest.listener) }?;
+    let lock = unsafe { Lock::adopt(manifest.lock) }?;
     let histories: Vec<_> = manifest
         .tabs
         .iter()
@@ -203,7 +191,7 @@ pub(super) fn adopt(
         size: manifest.size,
         active: manifest.active,
     };
-    let hub = Hub::new(listener, lock_file, restored, exit, notification, version);
+    let hub = Hub::new(listener, lock, restored, exit, notification, version);
     let mut state = hub.state.lock();
     for (adopted, history) in manifest.tabs.into_iter().zip(histories) {
         let output = hub.new_output(&adopted.entry.id, manifest.size);
@@ -220,8 +208,8 @@ pub(super) fn adopt(
             output.set_history(history.unwrap_or_else(|| adopted.screen.clone().into_bytes()));
         }
         let mut tab = Tab::new(adopted.entry, adopted.pinned, output);
-        if let Some((pid, fd)) = adopted.process {
-            let master = unsafe { adopt_fd(fd) }?;
+        if let Some((pid, handle)) = adopted.process {
+            let master = unsafe { Master::adopt(handle) }?;
             hub.attach_process(&mut tab, pid, master, Ownership::Adopted, Wanted::Pause)?;
         }
         state.tabs.push(tab);
@@ -232,7 +220,18 @@ pub(super) fn adopt(
 
 #[cfg(test)]
 mod tests {
-    use super::ManifestTab;
+    use super::{ManifestTab, Pid};
+
+    #[test]
+    fn a_process_from_an_older_daemon_is_read_from_plain_numbers() {
+        let tab: ManifestTab =
+            serde_json::from_str(r#"{"id":"a","pinned":true,"screen":"$ ","process":[42,7]}"#)
+                .unwrap();
+        assert_eq!(
+            tab.process.unwrap().0,
+            serde_json::from_str::<Pid>("42").unwrap()
+        );
+    }
 
     #[test]
     fn a_tab_from_an_older_daemon_is_adopted() {

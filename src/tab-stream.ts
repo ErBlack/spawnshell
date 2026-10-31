@@ -1,6 +1,5 @@
-import { Channel } from "@tauri-apps/api/core";
 import type { Terminal } from "@xterm/xterm";
-import { commands } from "./bindings.ts";
+import { commands } from "./backend.ts";
 import { reportFailure } from "./report-failure.ts";
 
 const HIGH_WATER = 128 * 1024;
@@ -29,9 +28,11 @@ export class TabStream {
 
   attach() {
     if (this.closed) return;
-    const channel = new Channel<ArrayBuffer>();
-    channel.onmessage = (data) => this.receive(new Uint8Array(data));
-    reportFailure(commands.tabAttach(this.tab, channel));
+    reportFailure(
+      commands.tabAttach(this.tab, (data) =>
+        this.receive(new Uint8Array(data)),
+      ),
+    );
   }
 
   resume() {

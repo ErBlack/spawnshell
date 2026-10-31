@@ -3359,8 +3359,6 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "block2",
- "dirs 6.0.0",
- "libc",
  "log",
  "objc2",
  "objc2-app-kit",
@@ -3368,11 +3366,11 @@ dependencies = [
  "parking_lot",
  "serde",
  "serde_json",
- "spawnshell-cli",
+ "spawnshell-client",
  "spawnshell-config",
- "spawnshell-daemon",
+ "spawnshell-entry",
  "spawnshell-notifier",
- "spawnshell-protocol",
+ "spawnshell-platform",
  "specta",
  "specta-typescript",
  "tauri",
@@ -3384,7 +3382,6 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
  "tauri-specta",
- "tokio",
 ]
 
 [[package]]
@@ -3393,9 +3390,22 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "dirs 6.0.0",
  "spawnshell-config",
+ "spawnshell-platform",
  "spawnshell-protocol",
+]
+
+[[package]]
+name = "spawnshell-client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "log",
+ "parking_lot",
+ "spawnshell-config",
+ "spawnshell-platform",
+ "spawnshell-protocol",
+ "tokio",
 ]
 
 [[package]]
@@ -3418,16 +3428,24 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "dirs 6.0.0",
- "libc",
  "parking_lot",
  "serde",
  "serde_json",
  "spawnshell-config",
  "spawnshell-notifier",
+ "spawnshell-platform",
  "spawnshell-protocol",
  "uuid",
  "vt100",
  "vte",
+]
+
+[[package]]
+name = "spawnshell-entry"
+version = "0.1.0"
+dependencies = [
+ "spawnshell-cli",
+ "spawnshell-daemon",
 ]
 
 [[package]]
@@ -3442,14 +3460,25 @@ dependencies = [
 ]
 
 [[package]]
-name = "spawnshell-protocol"
+name = "spawnshell-platform"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "dirs 6.0.0",
+ "libc",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "spawnshell-protocol"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
  "serde",
  "serde_json",
  "spawnshell-config",
+ "spawnshell-platform",
  "specta",
 ]
 

@@ -1,26 +1,12 @@
-use serde::{Deserialize, Serialize};
-use specta::Type;
+use client::Daemon;
 use tauri::menu::MenuBuilder;
 use tauri::{AppHandle, Manager};
-use tauri_plugin_dialog::DialogExt;
-use tauri_specta::Event as _;
 
-use super::Daemon;
-use super::commands::CommandResult;
+use crate::bridge::{self, TabMenuChosen};
 
 const INSTALL: &str = "app:install";
 const QUIT: &str = "app:quit";
 const STOP: &str = "app:stop";
-
-#[derive(Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
-#[serde(tag = "action", rename_all = "snake_case")]
-pub enum TabMenuChosen {
-    New,
-    Pin { tab: String, pinned: bool },
-    Rename { tab: String },
-    Restart { tab: String },
-    Close { tab: String },
-}
 
 impl TabMenuChosen {
     fn id(&self) -> String {
@@ -34,7 +20,7 @@ impl TabMenuChosen {
 
 pub fn handle(app: &AppHandle, id: &str) {
     if let Some(chosen) = TabMenuChosen::parse(id) {
-        let _ = chosen.emit(app);
+        bridge::tab_menu_chosen(app, chosen);
     } else if id == INSTALL {
         install(app);
     } else if id == QUIT {
@@ -42,29 +28,19 @@ pub fn handle(app: &AppHandle, id: &str) {
     } else if id == STOP
         && let Some(daemon) = app.try_state::<Daemon>()
     {
-        daemon.stop(app);
+        daemon.stop();
     }
 }
 
 fn install(app: &AppHandle) {
-    let message = match cli::install::install() {
+    let message = match platform::install::install() {
         Ok(link) => format!("The spawnshell command is installed as {}.", link.display()),
         Err(error) => format!("Couldn't install the spawnshell command: {error:#}"),
     };
-    app.dialog()
-        .message(message)
-        .title("Spawnshell")
-        .show(|_| {});
+    crate::show_message(app, message);
 }
 
-#[tauri::command]
-#[specta::specta]
-#[expect(clippy::needless_pass_by_value, reason = "Tauri command")]
-pub fn show_tab_menu(
-    window: tauri::WebviewWindow,
-    tab: Option<String>,
-    pinned: bool,
-) -> CommandResult<()> {
+pub fn show(window: &tauri::WebviewWindow, tab: Option<String>, pinned: bool) -> tauri::Result<()> {
     let menu = if let Some(tab) = tab {
         let rename = TabMenuChosen::Rename { tab: tab.clone() };
         let label = if pinned { "Unpin Tab" } else { "Pin Tab" };
@@ -72,7 +48,7 @@ pub fn show_tab_menu(
             tab: tab.clone(),
             pinned: !pinned,
         };
-        let mut menu = MenuBuilder::new(&window)
+        let mut menu = MenuBuilder::new(window)
             .text(rename.id(), "Rename Tab…")
             .separator()
             .text(pin.id(), label);
@@ -82,7 +58,7 @@ pub fn show_tab_menu(
         }
         menu.text(TabMenuChosen::Close { tab }.id(), "Close Tab")
     } else {
-        MenuBuilder::new(&window)
+        MenuBuilder::new(window)
             .text(TabMenuChosen::New.id(), "New Tab")
             .separator()
             .text(INSTALL, "Install Command Line Tool…")

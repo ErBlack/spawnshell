@@ -1,43 +1,11 @@
 use std::fs::{self, File};
 use std::io::{self, ErrorKind, Write};
-use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use platform::fs::{sync, sync_dir};
 
 use crate::report;
-
-fn checked(result: libc::c_int) -> io::Result<()> {
-    if result == -1 {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
-}
-
-fn retrying(call: impl Fn() -> io::Result<()>) -> io::Result<()> {
-    loop {
-        match call() {
-            Err(error) if error.kind() == ErrorKind::Interrupted => {}
-            result => return result,
-        }
-    }
-}
-
-fn sync_with(
-    full: impl Fn() -> io::Result<()>,
-    plain: impl Fn() -> io::Result<()>,
-) -> io::Result<()> {
-    retrying(full).or_else(|_| retrying(plain))
-}
-
-fn sync(file: &File) -> io::Result<()> {
-    let fd = file.as_raw_fd();
-    sync_with(
-        || checked(unsafe { libc::fcntl(fd, libc::F_FULLFSYNC) }),
-        || checked(unsafe { libc::fsync(fd) }),
-    )
-}
 
 fn resolve(path: &Path) -> io::Result<PathBuf> {
     match fs::canonicalize(path) {
@@ -69,7 +37,7 @@ fn write_synced(path: &Path, bytes: &[u8]) -> io::Result<()> {
         let _ = fs::remove_file(&staging);
     }
     staged?;
-    if let Err(error) = File::open(dir).and_then(|dir| sync(&dir)) {
+    if let Err(error) = sync_dir(dir) {
         report(&anyhow::Error::new(error).context(format!("can't sync {}", dir.display())));
     }
     Ok(())
@@ -79,7 +47,7 @@ pub fn write(path: &Path, bytes: &[u8]) -> Result<()> {
     write_synced(path, bytes).with_context(|| format!("can't write {}", path.display()))
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
@@ -128,38 +96,5 @@ mod tests {
         assert_eq!(mode, 0o600);
         assert!(refused);
         assert!(still_link);
-    }
-
-    #[test]
-    fn syncing_falls_back_when_a_full_sync_is_unsupported() {
-        use std::cell::Cell;
-
-        let plain = Cell::new(0);
-        let fell_back = sync_with(
-            || Err(io::Error::from(ErrorKind::Unsupported)),
-            || {
-                plain.set(plain.get() + 1);
-                Ok(())
-            },
-        );
-        assert!(fell_back.is_ok());
-        assert_eq!(plain.get(), 1);
-
-        let interrupted = Cell::new(true);
-        let full = sync_with(
-            || {
-                if interrupted.replace(false) {
-                    Err(io::Error::from(ErrorKind::Interrupted))
-                } else {
-                    Ok(())
-                }
-            },
-            || {
-                plain.set(plain.get() + 1);
-                Ok(())
-            },
-        );
-        assert!(full.is_ok());
-        assert_eq!(plain.get(), 1);
     }
 }

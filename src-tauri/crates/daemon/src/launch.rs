@@ -1,20 +1,18 @@
-use std::fs;
-use std::os::fd::OwnedFd;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use parking_lot::Mutex;
+use platform::Size;
+use platform::process::Pid;
+use platform::pty::{self, Master};
 use protocol::Frame;
 
 use super::flow::{Gate, Wanted};
 use super::hub::{Hub, Tab};
 use super::io::{start_io, start_writer};
 use super::output::{Output, RESET_AFTER_HISTORY};
-use super::process::{Ownership, Proc, hang_up};
-use super::report;
-use crate::paths;
-use crate::pty::{self, Size};
+use super::process::{Ownership, Proc, shut_down};
 
 #[derive(Default)]
 pub(super) struct Launch {
@@ -24,80 +22,15 @@ pub(super) struct Launch {
 }
 
 pub(super) struct Spawned {
-    pub(super) pid: i32,
-    pub(super) master: OwnedFd,
+    pub(super) pid: Pid,
+    pub(super) master: Master,
     pub(super) cwd: PathBuf,
 }
 
 impl Spawned {
     pub(super) fn discard(self) {
-        hang_up(self.pid, None, Ownership::Child);
+        shut_down(self.pid, None, Ownership::Child);
     }
-}
-
-pub(super) struct Shell {
-    path: String,
-    integration: Option<PathBuf>,
-}
-
-impl Shell {
-    pub(super) fn detect() -> Self {
-        let path = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
-        let integration = install_integration(&path).unwrap_or_else(|error| {
-            report(&error.context("shell integration is off"));
-            None
-        });
-        Shell { path, integration }
-    }
-
-    fn arguments(&self, command: &str, restore: Option<&str>) -> Vec<String> {
-        let mut args = vec!["-l".to_string()];
-        let command = (!command.trim().is_empty()).then(|| command.to_string());
-        match (restore, command) {
-            (Some(restore), command) => {
-                let next = command.unwrap_or_else(|| match &self.integration {
-                    Some(dir) => format!(
-                        "exec env ZDOTDIR={} {} -l",
-                        quote(&dir.to_string_lossy()),
-                        quote(&self.path)
-                    ),
-                    None => format!("exec {} -l", quote(&self.path)),
-                });
-                let start = if self.integration.is_some() {
-                    "builtin print -n '\\e]133;C\\a'\n"
-                } else {
-                    ""
-                };
-                args.extend([
-                    "-i".into(),
-                    "-c".into(),
-                    format!("{start}{restore}\n{next}"),
-                ]);
-            }
-            (None, Some(command)) => args.extend(["-c".into(), command]),
-            (None, None) => {}
-        }
-        args
-    }
-}
-
-fn install_integration(shell: &str) -> Result<Option<PathBuf>> {
-    if Path::new(shell)
-        .file_name()
-        .is_none_or(|name| name != "zsh")
-    {
-        return Ok(None);
-    }
-    let dir = paths::data_dir()?.join("shell-integration").join("zsh");
-    fs::create_dir_all(&dir).with_context(|| format!("can't create {}", dir.display()))?;
-    let file = dir.join(".zshenv");
-    fs::write(&file, include_str!("../zsh/.zshenv"))
-        .with_context(|| format!("can't write {}", file.display()))?;
-    Ok(Some(dir))
-}
-
-fn quote(text: &str) -> String {
-    format!("'{}'", text.replace('\'', "'\\''"))
 }
 
 impl Hub {
@@ -145,23 +78,17 @@ impl Hub {
             .unwrap_or_else(|| PathBuf::from("/"));
         let command = self.config().command;
         let args = self.shell.arguments(&command, restore.as_deref());
-        let integration = self
-            .shell
-            .integration
-            .as_ref()
-            .map(|dir| dir.to_string_lossy().into_owned());
-        let original = std::env::var("ZDOTDIR").ok();
+        let shell_env = self.shell.env();
         let mut env = vec![
             ("TERM", "xterm-256color"),
             ("COLORTERM", "truecolor"),
             ("SPAWNSHELL_TAB", id),
         ];
-        if let Some(integration) = &integration {
-            env.push(("ZDOTDIR", integration));
-            if let Some(original) = &original {
-                env.push(("SPAWNSHELL_ZSH_ZDOTDIR", original));
-            }
-        }
+        env.extend(
+            shell_env
+                .iter()
+                .map(|(name, value)| (*name, value.as_str())),
+        );
         let spawned = pty::spawn(&pty::Spawn {
             program: &self.shell.path,
             args: &args,
@@ -176,9 +103,9 @@ impl Hub {
                 cwd: dir,
             }),
             Err(error) => {
-                output
-                    .lock()
-                    .emit(format!("\x1b[31m{error:#}\x1b[0m\r\n").as_bytes());
+                let mut output = output.lock();
+                output.emit(format!("\x1b[31m{error:#}\x1b[0m\r\n").as_bytes());
+                output.stop();
                 Err(error)
             }
         }
@@ -187,8 +114,8 @@ impl Hub {
     pub(super) fn attach_process(
         self: &Arc<Self>,
         tab: &mut Tab,
-        pid: i32,
-        master: OwnedFd,
+        pid: Pid,
+        master: Master,
         ownership: Ownership,
         initial: Wanted,
     ) -> Result<()> {
@@ -205,7 +132,7 @@ impl Hub {
         let input = match started {
             Ok(input) => input,
             Err(error) => {
-                hang_up(pid, None, ownership);
+                shut_down(pid, None, ownership);
                 return Err(error.into());
             }
         };
@@ -217,41 +144,5 @@ impl Hub {
             ownership,
         });
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn restore_runs_before_the_next_command() {
-        let mut shell = Shell {
-            path: "/bin/zsh".into(),
-            integration: None,
-        };
-        assert_eq!(shell.arguments("", None), ["-l"]);
-        assert_eq!(
-            shell.arguments("", Some("claude --resume 'x'")),
-            ["-l", "-i", "-c", "claude --resume 'x'\nexec '/bin/zsh' -l"]
-        );
-
-        shell.integration = Some(PathBuf::from("/s"));
-        assert_eq!(
-            shell.arguments("", Some("claude")),
-            [
-                "-l",
-                "-i",
-                "-c",
-                "builtin print -n '\\e]133;C\\a'\nclaude\nexec env ZDOTDIR='/s' '/bin/zsh' -l"
-            ]
-        );
-
-        shell.integration = None;
-        assert_eq!(shell.arguments("htop", None), ["-l", "-c", "htop"]);
-        assert_eq!(
-            shell.arguments("htop", Some("echo hi")),
-            ["-l", "-i", "-c", "echo hi\nhtop"]
-        );
     }
 }

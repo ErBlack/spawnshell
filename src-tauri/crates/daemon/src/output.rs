@@ -1,11 +1,12 @@
+use platform::Size;
 use protocol::HISTORY_LINES;
 
 use super::modes::{Modes, ProgramTitle};
 use super::notifications::Notification;
-use crate::pty::Size;
 
 const HISTORY_BYTES: usize = 16 * 1024 * 1024;
 
+const HIDE_CURSOR: &[u8] = b"\x1b[?25l";
 pub(super) const RESET_AFTER_HISTORY: &[u8] = b"\x1b[?1049l\x1b[!p\x1b[0m\x1b[?25h\
     \x1b[?9l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?1016l\
     \x1b[?1004l\x1b[?2004l\x1b[?1l\x1b>\r\n";
@@ -33,6 +34,7 @@ pub(super) struct Output {
     history: Vec<u8>,
     lines: usize,
     dirty: bool,
+    muted: bool,
 }
 
 impl Output {
@@ -45,6 +47,7 @@ impl Output {
             history: Vec::new(),
             lines: 0,
             dirty: false,
+            muted: false,
         }
     }
 
@@ -52,7 +55,15 @@ impl Output {
         self.parser.screen().alternate_screen()
     }
 
+    pub(super) fn stop(&mut self) {
+        self.emit(HIDE_CURSOR);
+        self.mute();
+    }
+
     pub(super) fn emit(&mut self, batch: &[u8]) {
+        if self.muted {
+            return;
+        }
         self.feed(batch);
         for notification in self.modes.take_notifications() {
             (self.signals)(Signal::Notification(notification));
@@ -100,8 +111,7 @@ impl Output {
     }
 
     pub(super) fn mute(&mut self) {
-        self.sink = Box::new(|_| {});
-        self.signals = Box::new(|_| {});
+        self.muted = true;
     }
 
     pub(super) fn title(&self) -> Option<&str> {
@@ -200,6 +210,16 @@ mod tests {
 
     fn quiet() -> Output {
         Output::new(Size::new(24, 80), Box::new(|_| {}), Box::new(|_| {}))
+    }
+
+    #[test]
+    fn a_stopped_output_hides_the_cursor_and_ignores_late_bytes() {
+        let mut output = quiet();
+        output.stop();
+        output.emit(b"\x1b[?25hLATE");
+        let screen = output.parser.screen();
+        assert!(screen.hide_cursor());
+        assert!(!screen.contents().contains("LATE"));
     }
 
     #[derive(Default)]

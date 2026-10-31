@@ -1,12 +1,10 @@
-import { Channel } from "@tauri-apps/api/core";
-import { error as logError } from "@tauri-apps/plugin-log";
-import { type Appearance, commands, events, type Font } from "./bindings.ts";
+import { applyAppearance } from "./apply-appearance.ts";
 import { errorMessage } from "./error-message.ts";
 import { installKeybindings } from "./install-keybindings.ts";
 import { listenTabMenu } from "./listen-tab-menu.ts";
-import { reportFailure } from "./report-failure.ts";
+import { listenTabs } from "./listen-tabs.ts";
 import { setupWindow } from "./setup-window.ts";
-import { showError } from "./show-error.ts";
+import { listenWarnings, showFatal, showPendingWarning } from "./show-error.ts";
 import { TabManager } from "./tab-manager.ts";
 import { Tabs } from "./tabs.ts";
 import { Terminals } from "./terminals.ts";
@@ -21,7 +19,7 @@ function element(id: string): HTMLElement {
 async function main() {
   const panes = element("panes");
 
-  const terminals = new Terminals(await commands.historyLines());
+  const terminals = await Terminals.load();
 
   const tabs = new Tabs(
     element("tabbar"),
@@ -37,8 +35,7 @@ async function main() {
         manager.close(id);
       },
       menu(id) {
-        const pinned = Boolean(id && manager.find(id)?.pinned);
-        reportFailure(commands.showTabMenu(id ?? null, pinned));
+        manager.showMenu(id);
       },
       place(id, pinned, position) {
         manager.place(id, pinned, position);
@@ -55,50 +52,21 @@ async function main() {
     tabs.render(manager.entries(), manager.active),
   );
 
-  const appearances = new Channel<Appearance>();
-  let font: Font | undefined;
-  const appearanceReady = new Promise<void>((resolve) => {
-    appearances.onmessage = (appearance) => {
-      tabs.setSide(appearance.tabBar);
-      const next = appearance.font;
-      if (font?.family !== next.family || font?.size !== next.size) {
-        font = next;
-        document.body.style.fontFamily = `${next.family}, monospace`;
-        document.body.style.fontSize = `${next.size}px`;
-        terminals.setFont(next);
-      }
-      resolve();
-    };
-  });
-  await commands.watchAppearance(appearances);
-  await appearanceReady;
+  await applyAppearance(tabs, terminals);
 
   const unlisteners = await Promise.all([
-    events.tabsChanged.listen(({ payload }) => manager.update(payload)),
-    events.tabSelected.listen(({ payload }) => manager.select(payload)),
-    events.tabTitleChanged.listen(({ payload }) =>
-      manager.setTitle(payload.tab, payload.title),
-    ),
-    events.reconnected.listen(() => {
-      manager.clear();
-      manager
-        .refresh()
-        .catch((error: unknown) =>
-          showError(`couldn't reload tabs: ${errorMessage(error)}`),
-        );
-    }),
-    events.warning.listen(({ payload }) => showError(payload)),
+    listenTabs(manager),
+    listenWarnings(),
     listenTabMenu(manager, tabs),
   ]);
   import.meta.hot?.dispose(() => {
-    for (const unlisten of unlisteners) unlisten();
+    for (const unlisten of unlisteners.flat()) unlisten();
   });
 
   await manager.refresh();
   installKeybindings(manager);
 
-  const warning = await commands.takeWarning();
-  if (warning) showError(warning);
+  await showPendingWarning();
 
   await setupWindow(panes, {
     fit: () => terminals.fit(),
@@ -107,14 +75,12 @@ async function main() {
       manager.resume();
       if (manager.count === 0) manager.create();
     },
-    onHide: () => reportFailure(commands.sessionSave()),
+    onHide: () => manager.save(),
   });
 
   terminals.fit();
 }
 
 main().catch((error: unknown) => {
-  const message = errorMessage(error);
-  logError(`failed to start: ${message}`);
-  commands.reportFatal(message);
+  showFatal(errorMessage(error));
 });

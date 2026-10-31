@@ -4,13 +4,13 @@ use std::sync::atomic::Ordering;
 
 use anyhow::Result;
 use parking_lot::Mutex;
+use platform::Size;
 
 use super::hub::Hub;
 use super::output::Output;
 use super::report;
 use crate::files;
 use crate::paths;
-use crate::pty::Size;
 use crate::session::{self, TabEntry};
 
 pub(super) fn set_aside(error: anyhow::Error, paths: &[&Path]) -> Result<()> {

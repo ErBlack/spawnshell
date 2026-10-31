@@ -1,18 +1,18 @@
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, mpsc};
 use std::thread;
 
 use anyhow::{Result, bail, ensure};
+use platform::Size;
 use protocol::{Command, Event, Failure, Frame, Reply, Role};
 
 use super::flow::Wanted;
-use super::hub::{Gui, Hub, Tab, event_frame};
+use super::hub::{Gui, Hub, Tab};
 use super::launch::{Launch, Spawned};
 use super::process::{Ownership, Proc};
+use super::server::{self, event_frame};
 use super::{Exit, report};
-use crate::pty::Size;
 use crate::session::{self, TabEntry};
 
 const UNPINNED_RESTORE: &str = "only pinned tabs have a restore command";
@@ -282,9 +282,7 @@ impl Hub {
             .collect();
         let waits: Vec<_> = procs.into_iter().map(Proc::terminate).collect();
         self.notify(Event::Stop);
-        if let Ok(socket) = protocol::socket() {
-            let _ = fs::remove_file(socket);
-        }
+        server::remove_socket();
         let exit = self.exit.clone();
         thread::spawn(move || {
             for wait in waits {

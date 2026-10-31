@@ -9,7 +9,7 @@ name = "protocol"
 [dependencies]
 config.workspace = true
 anyhow.workspace = true
-dirs.workspace = true
+platform.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 specta.workspace = true

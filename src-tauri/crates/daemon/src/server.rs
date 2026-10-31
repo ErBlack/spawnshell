@@ -1,12 +1,12 @@
 use std::io::BufReader;
-use std::os::fd::AsRawFd;
-use std::os::unix::net::UnixStream;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::Duration;
 
-use protocol::{Failure, Frame, FromDaemon, Request, Seq};
+use anyhow::{Context, Result};
+use platform::ipc::{self, Listener, Stream};
+use protocol::{Event, Failure, Frame, FromDaemon, Request, Seq};
 
 use super::hub::Hub;
 use super::report;
@@ -44,17 +44,23 @@ fn failure(error: &anyhow::Error) -> Failure {
     }
 }
 
-fn same_user(stream: &UnixStream) -> bool {
-    let mut uid: libc::uid_t = 0;
-    let mut gid: libc::gid_t = 0;
-    unsafe {
-        libc::getpeereid(stream.as_raw_fd(), &raw mut uid, &raw mut gid) == 0
-            && uid == libc::geteuid()
+pub(super) fn listen() -> Result<Listener> {
+    let socket = protocol::socket()?;
+    Listener::bind(&socket).with_context(|| format!("can't listen on {}", socket.display()))
+}
+
+pub(super) fn remove_socket() {
+    if let Ok(socket) = protocol::socket() {
+        ipc::remove_socket(&socket);
     }
 }
 
+pub(super) fn event_frame(event: Event) -> Frame {
+    protocol::message(&FromDaemon::Event { event })
+}
+
 impl Hub {
-    fn serve(self: Arc<Self>, stream: UnixStream) {
+    fn serve(self: Arc<Self>, stream: Stream) {
         let client = self.clients.fetch_add(1, Ordering::Relaxed);
         let Ok(mut writer) = stream.try_clone() else {
             return;
@@ -114,7 +120,7 @@ impl Hub {
                 }
             };
             backoff.succeeded();
-            if self.upgrading.load(Ordering::SeqCst) || !same_user(&stream) {
+            if self.upgrading.load(Ordering::SeqCst) || !stream.same_user() {
                 continue;
             }
             let hub = Arc::clone(self);

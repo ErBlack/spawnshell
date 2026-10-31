@@ -1,15 +1,24 @@
+#![cfg(unix)]
+
 use std::io::{self, BufReader, Read, Write};
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use platform::ipc::{self, Lock, Stream};
+use platform::process::{self, Pid};
 use serde_json::{Value, json};
 
 const BIN: &str = env!("CARGO_BIN_EXE_spawnshell");
-const DATA_DIR: &str = "Library/Application Support/com.erblack.spawnshell-terminal";
+#[cfg(target_os = "macos")]
+const DATA_ROOT: &str = "Library/Application Support";
+#[cfg(not(target_os = "macos"))]
+const DATA_ROOT: &str = ".local/share";
+const IDENTIFIER: &str = "com.erblack.spawnshell-terminal";
 const PATIENCE: Duration = Duration::from_secs(10);
+const HIDE_CURSOR: &str = "\x1b[?25l";
+const SHOW_CURSOR: &str = "\x1b[?25h";
 
 fn eventually(timeout: Duration, mut done: impl FnMut() -> bool) -> bool {
     let deadline = Instant::now() + timeout;
@@ -54,7 +63,7 @@ fn tagged(kind: u8, tab: &str, data: &[u8]) -> Vec<u8> {
     payload
 }
 
-fn send_raw(stream: &mut UnixStream, body: &[u8]) {
+fn send_raw(stream: &mut Stream, body: &[u8]) {
     let mut buffer = u32::try_from(body.len()).unwrap().to_be_bytes().to_vec();
     buffer.extend_from_slice(body);
     stream.write_all(&buffer).unwrap();
@@ -140,8 +149,12 @@ impl Env {
     }
 
     fn start(&self) -> Daemon {
+        self.start_with(&mut self.command())
+    }
+
+    fn start_with(&self, command: &mut Command) -> Daemon {
         Daemon {
-            child: self.command().arg("__daemon").spawn().unwrap(),
+            child: command.arg("__daemon").spawn().unwrap(),
             socket: self.socket.clone(),
         }
     }
@@ -151,7 +164,7 @@ impl Env {
     }
 
     fn data_dir(&self) -> PathBuf {
-        self.home.join(DATA_DIR)
+        self.home.join(DATA_ROOT).join(IDENTIFIER)
     }
 
     fn session(&self) -> Value {
@@ -163,13 +176,13 @@ impl Env {
 impl Drop for Env {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.home);
-        let _ = std::fs::remove_file(&self.socket);
+        ipc::remove_socket(&self.socket);
     }
 }
 
 struct Client {
-    writer: UnixStream,
-    reader: BufReader<UnixStream>,
+    writer: Stream,
+    reader: BufReader<Stream>,
     seq: u64,
     output: Vec<u8>,
     live: Vec<u8>,
@@ -179,7 +192,7 @@ impl Client {
     fn connect(socket: &Path, role: &str, patience: Duration) -> io::Result<Client> {
         let deadline = Instant::now() + patience;
         let writer = loop {
-            match UnixStream::connect(socket) {
+            match Stream::connect(socket) {
                 Ok(stream) => break stream,
                 Err(error) if Instant::now() > deadline => return Err(error),
                 Err(_) => thread::sleep(Duration::from_millis(50)),
@@ -298,17 +311,13 @@ impl Client {
     }
 }
 
-fn alive(pid: i32) -> bool {
-    unsafe { libc::kill(pid, 0) == 0 }
+fn wait_dead(pid: Pid) -> bool {
+    eventually(Duration::from_secs(5), || !process::exists(pid))
 }
 
-fn wait_dead(pid: i32) -> bool {
-    eventually(Duration::from_secs(5), || !alive(pid))
-}
-
-fn shell_pid(client: &mut Client, tab: &str, marker: &str) -> i32 {
+fn shell_pid(client: &mut Client, tab: &str, marker: &str) -> Pid {
     client.type_text(tab, &format!("echo {marker}':'$$\n"));
-    client.expect(&format!("{marker}:")).parse().unwrap()
+    serde_json::from_str(&client.expect(&format!("{marker}:"))).unwrap()
 }
 
 fn new_tab(client: &mut Client, pinned: bool) -> String {
@@ -334,7 +343,7 @@ fn pinned_processes_survive_an_upgrade() {
         "old daemon kept the connection: {upgrade:?}"
     );
     assert!(first.exited(), "old daemon did not exit");
-    assert!(alive(pid), "shell died during the upgrade");
+    assert!(process::exists(pid), "shell died during the upgrade");
 
     let mut gui = env.connect("gui");
     let tabs = gui.tabs();
@@ -343,7 +352,7 @@ fn pinned_processes_survive_an_upgrade() {
     assert_eq!(tabs[0]["alive"], true);
     gui.call(&json!({"command": "attach", "tab": tab}));
     assert_eq!(
-        gui.expect("BEFORE:").parse::<i32>().unwrap(),
+        serde_json::from_str::<Pid>(&gui.expect("BEFORE:")).unwrap(),
         pid,
         "screen was not carried over"
     );
@@ -371,13 +380,19 @@ fn quitting_the_gui_closes_unpinned_tabs_and_keeps_pinned_ones() {
     drop(gui);
 
     assert!(wait_dead(loose_pid), "unpinned shell outlived the GUI");
-    assert!(alive(pinned_pid), "pinned shell died with the GUI");
+    assert!(
+        process::exists(pinned_pid),
+        "pinned shell died with the GUI"
+    );
     let mut cli = env.connect("cli");
     let tabs = cli.tabs();
     assert_eq!(tabs.len(), 1);
     assert_eq!(tabs[0]["id"], pinned);
     assert_eq!(tabs[0]["alive"], true);
-    assert!(alive(pinned_pid), "pinned shell died after the GUI left");
+    assert!(
+        process::exists(pinned_pid),
+        "pinned shell died after the GUI left"
+    );
 }
 
 #[test]
@@ -404,6 +419,79 @@ fn closing_a_pinned_tab_unloads_it_unless_forced() {
         &env.spawnshell(&["close", "--force", "--tab", &pinned])
     ));
     assert_eq!(gui.tabs(), Vec::<Value>::new());
+}
+
+#[test]
+fn a_stopped_tab_hides_the_cursor_until_it_restarts() {
+    let env = Env::new("cursor");
+    let _daemon = env.start();
+    let mut gui = env.connect("gui");
+    let tab = new_tab(&mut gui, true);
+    let pid = shell_pid(&mut gui, &tab, "FIRST");
+    gui.type_text(&tab, "exit\n");
+    assert!(wait_dead(pid));
+    gui.wait_for(HIDE_CURSOR);
+
+    gui.output.clear();
+    gui.call(&json!({"command": "attach", "tab": tab}));
+    gui.wait_for(HIDE_CURSOR);
+
+    gui.output.clear();
+    gui.call(&json!({"command": "restart", "tab": tab}));
+    let pid = shell_pid(&mut gui, &tab, "SECOND");
+    let text = String::from_utf8_lossy(&gui.output).into_owned();
+    assert!(
+        text.rfind(SHOW_CURSOR) > text.rfind(HIDE_CURSOR),
+        "cursor left hidden: {text:?}"
+    );
+
+    gui.output.clear();
+    gui.call(&json!({"command": "close", "tab": tab}));
+    assert!(wait_dead(pid));
+    gui.wait_for(HIDE_CURSOR);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn zsh_runs_with_the_shell_integration() {
+    let env = Env::new("zsh");
+    let _daemon = env.start_with(env.command().env("SHELL", "/bin/zsh"));
+    let mut gui = env.connect("gui");
+    new_tab(&mut gui, true);
+
+    gui.wait_for("\x1b]133;D");
+}
+
+#[test]
+fn a_failed_restart_leaves_the_cursor_hidden() {
+    let env = Env::new("failed-restart");
+    let shell = env.home.join("shell");
+    std::os::unix::fs::symlink("/bin/sh", &shell).unwrap();
+    let _daemon = env.start_with(env.command().env("SHELL", &shell));
+    let mut gui = env.connect("gui");
+    let tab = new_tab(&mut gui, true);
+    let pid = shell_pid(&mut gui, &tab, "FIRST");
+    gui.type_text(&tab, "exit\n");
+    assert!(wait_dead(pid));
+    assert!(
+        eventually(PATIENCE, || gui.tabs()[0]["alive"] == false),
+        "tab never stopped"
+    );
+    std::fs::remove_file(&shell).unwrap();
+
+    let restart = gui
+        .try_call(&json!({"command": "restart", "tab": tab}))
+        .unwrap();
+    assert!(restart.get("Ok").is_none(), "restart worked: {restart}");
+    assert_eq!(gui.tabs()[0]["alive"], false);
+
+    gui.output.clear();
+    gui.call(&json!({"command": "attach", "tab": tab}));
+    let text = gui.wait_for("couldn't start the shell");
+    assert!(
+        text.rfind(HIDE_CURSOR) > text.rfind(SHOW_CURSOR),
+        "cursor came back: {text:?}"
+    );
 }
 
 #[test]
@@ -914,8 +1002,7 @@ fn program_titles_reach_the_gui() {
 }
 
 fn previous_data_dir(env: &Env) -> PathBuf {
-    env.home
-        .join("Library/Application Support/com.erblack.summon-terminal")
+    env.home.join(DATA_ROOT).join("com.erblack.summon-terminal")
 }
 
 #[test]
@@ -937,17 +1024,12 @@ fn data_of_the_previous_name_is_taken_over() {
 
 #[test]
 fn data_of_the_previous_name_waits_until_it_stops() {
-    use std::os::fd::AsRawFd;
-
     let env = Env::new("running");
     let previous = previous_data_dir(&env);
     std::fs::create_dir_all(&previous).unwrap();
     std::fs::write(previous.join("session.json"), r#"{"tabs":[]}"#).unwrap();
-    let lock = std::fs::File::create(previous.join("daemon.lock")).unwrap();
-    assert_eq!(
-        unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) },
-        0
-    );
+    let lock = Lock::open(&previous.join("daemon.lock")).unwrap();
+    assert!(lock.try_lock().unwrap());
     let mut daemon = env.start();
 
     assert!(
@@ -985,9 +1067,8 @@ fn the_daemon_after_an_upgrade_reports_its_own_pid() {
     let hello = cli.call(&json!({"command": "hello", "role": "cli"}));
 
     assert_ne!(hello["pid"], old);
-    assert!(alive(
-        i32::try_from(hello["pid"].as_i64().unwrap()).unwrap()
-    ));
+    let pid: Pid = serde_json::from_value(hello["pid"].clone()).unwrap();
+    assert!(process::exists(pid));
     assert_eq!(hello["version"], env!("CARGO_PKG_VERSION"));
 }
 

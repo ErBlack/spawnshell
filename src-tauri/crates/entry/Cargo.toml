@@ -1,0 +1,14 @@
+[package]
+name = "spawnshell-entry"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "entry"
+
+[dependencies]
+cli.workspace = true
+daemon.workspace = true
+
+[lints]
+workspace = true

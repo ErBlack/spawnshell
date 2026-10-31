@@ -1,29 +1,23 @@
 use std::fmt;
 use std::io::{self, BufReader, Read, Write};
-use std::os::unix::fs::MetadataExt;
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use config::{Config, Key};
+use platform::ipc::Stream;
+use platform::process::{Build, build_of};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 pub const IDENTIFIER: &str = "com.erblack.spawnshell-terminal";
 pub const HISTORY_LINES: usize = 10_000;
 
-pub fn data_dir() -> Result<PathBuf> {
-    dirs::data_dir()
-        .map(|dir| dir.join(IDENTIFIER))
-        .context("can't find the Application Support folder")
-}
-
 pub fn socket() -> Result<PathBuf> {
     match std::env::var_os("SPAWNSHELL_SOCKET") {
         Some(path) => Ok(PathBuf::from(path)),
-        None => data_dir().map(|dir| dir.join("daemon.sock")),
+        None => platform::paths::socket(IDENTIFIER),
     }
 }
 
@@ -120,21 +114,6 @@ pub fn message(value: &impl Serialize) -> Frame {
 
 pub fn parse<T: DeserializeOwned>(bytes: &[u8]) -> io::Result<T> {
     serde_json::from_slice(bytes).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
-}
-
-#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Build {
-    pub device: u64,
-    pub inode: u64,
-}
-
-#[must_use]
-pub fn build_of(exe: &Path) -> Option<Build> {
-    let metadata = std::fs::metadata(exe).ok()?;
-    Some(Build {
-        device: metadata.dev(),
-        inode: metadata.ino(),
-    })
 }
 
 pub fn build() -> Option<Build> {
@@ -328,14 +307,14 @@ pub enum FromDaemon {
 }
 
 pub struct Connection {
-    reader: BufReader<UnixStream>,
-    writer: UnixStream,
+    reader: BufReader<Stream>,
+    writer: Stream,
     seq: u64,
 }
 
 impl Connection {
     pub fn connect(socket: &Path, timeout: Duration) -> io::Result<Self> {
-        let writer = UnixStream::connect(socket)?;
+        let writer = Stream::connect(socket)?;
         writer.set_read_timeout(Some(timeout))?;
         Ok(Connection {
             reader: BufReader::new(writer.try_clone()?),
@@ -365,7 +344,7 @@ impl Connection {
         }
     }
 
-    pub fn into_parts(self) -> io::Result<(BufReader<UnixStream>, UnixStream)> {
+    pub fn into_parts(self) -> io::Result<(BufReader<Stream>, Stream)> {
         self.reader.get_ref().set_read_timeout(None)?;
         Ok((self.reader, self.writer))
     }
