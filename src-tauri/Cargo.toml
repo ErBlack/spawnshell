@@ -1,6 +1,6 @@
 [package]
 name = "spawnshell"
-version = "0.0.1"
+version = "0.0.2"
 description = "A Quake-style drop-down terminal"
 authors = ["erblack"]
 license = "GPL-3.0-or-later"
