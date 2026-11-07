@@ -178,8 +178,9 @@ pub fn show_tab_menu(
     window: tauri::WebviewWindow,
     tab: Option<String>,
     pinned: bool,
+    alive: bool,
 ) -> CommandResult<()> {
-    Ok(menu::show(&window, tab, pinned)?)
+    Ok(menu::show(&window, tab, pinned, alive)?)
 }
 
 #[tauri::command]

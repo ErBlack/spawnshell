@@ -40,7 +40,12 @@ fn install(app: &AppHandle) {
     crate::show_message(app, message);
 }
 
-pub fn show(window: &tauri::WebviewWindow, tab: Option<String>, pinned: bool) -> tauri::Result<()> {
+pub fn show(
+    window: &tauri::WebviewWindow,
+    tab: Option<String>,
+    pinned: bool,
+    alive: bool,
+) -> tauri::Result<()> {
     let menu = if let Some(tab) = tab {
         let rename = TabMenuChosen::Rename { tab: tab.clone() };
         let label = if pinned { "Unpin Tab" } else { "Pin Tab" };
@@ -56,7 +61,14 @@ pub fn show(window: &tauri::WebviewWindow, tab: Option<String>, pinned: bool) ->
             let restart = TabMenuChosen::Restart { tab: tab.clone() };
             menu = menu.text(restart.id(), "Restart Tab");
         }
-        menu.text(TabMenuChosen::Close { tab }.id(), "Close Tab")
+        let close = TabMenuChosen::Close { tab }.id();
+        if !pinned {
+            menu.text(close, "Close Tab")
+        } else if alive {
+            menu.text(close, "Unload Tab")
+        } else {
+            menu
+        }
     } else {
         MenuBuilder::new(window)
             .text(TabMenuChosen::New.id(), "New Tab")

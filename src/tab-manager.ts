@@ -189,8 +189,14 @@ export class TabManager {
   }
 
   showMenu(id: string | undefined) {
-    const pinned = Boolean(id && this.find(id)?.pinned);
-    reportFailure(commands.showTabMenu(id ?? null, pinned));
+    const info = id ? this.find(id) : undefined;
+    reportFailure(
+      commands.showTabMenu(
+        id ?? null,
+        info?.pinned ?? false,
+        info?.alive ?? false,
+      ),
+    );
   }
 
   save() {
