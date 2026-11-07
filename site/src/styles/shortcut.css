@@ -5,6 +5,7 @@
   align-self: start;
   margin-top: 1.5rem;
   position: relative;
+  z-index: 2;
   display: grid;
   justify-items: center;
   gap: 1.5rem;
@@ -34,6 +35,14 @@
     );
     filter: blur(0.5px);
     pointer-events: none;
+
+    @supports ((animation-timeline: scroll()) and (animation-range: 0% 100%)) {
+      @media (prefers-reduced-motion: no-preference) {
+        animation: sunset-dim linear both;
+        animation-timeline: scroll(root);
+        animation-range: 0 100svh;
+      }
+    }
   }
 
   &::before {
@@ -60,5 +69,13 @@
       transparent
     );
     pointer-events: none;
+
+    @supports ((animation-timeline: scroll()) and (animation-range: 0% 100%)) {
+      @media (prefers-reduced-motion: no-preference) {
+        animation: sunset-fade linear both;
+        animation-timeline: scroll(root);
+        animation-range: 0 100svh;
+      }
+    }
   }
 }

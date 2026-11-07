@@ -3,7 +3,7 @@ import { Shimmer } from "./shimmer.ts";
 import { TextLogo } from "./text-logo.ts";
 
 const VECTOR = "vector";
-const VARIANTS = ["logo", "shade", "braille", "half", "wire", VECTOR];
+const VARIANTS = ["logo", "shade", "wire", "half", VECTOR];
 
 const loadAnimations = () =>
   Promise.all([import("./retype/retype.ts"), import("./glitch-between.ts")]);
@@ -15,7 +15,6 @@ export async function mountLogo(logo: HTMLElement, ground: HTMLElement) {
   const textBox = logo.querySelector(".logo__text") as HTMLElement;
   const vectorBox = logo.querySelector(".logo__vector") as HTMLImageElement;
   const canvas = logo.querySelector(".logo__effect") as HTMLCanvasElement;
-  const button = logo.querySelector(".logo__switch") as HTMLButtonElement;
   const text = new TextLogo(textBox);
   const shimmer = new Shimmer(ground);
   let index = Math.floor(Math.random() * VARIANTS.length);
@@ -37,9 +36,8 @@ export async function mountLogo(logo: HTMLElement, ground: HTMLElement) {
 
   show(await resolveVariant(VARIANTS[index]));
   logo.dataset.ready = "";
-  button.addEventListener("pointerenter", prepare, { once: true });
-  button.addEventListener("focus", prepare, { once: true });
-  button.addEventListener("click", async () => {
+  logo.addEventListener("pointerenter", prepare, { once: true });
+  logo.addEventListener("click", async () => {
     if (busy) return;
     busy = true;
     const previous = VARIANTS[index];

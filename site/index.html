@@ -33,8 +33,8 @@
   </head>
   <body>
     <header class="hero">
-      <div class="logo">
-        <div class="logo__text" aria-hidden="true"></div>
+      <button class="logo" type="button" tabindex="-1" aria-hidden="true">
+        <span class="logo__text"></span>
         <img
           class="logo__vector"
           src="./src/logo/vector.svg"
@@ -42,12 +42,7 @@
           hidden
         />
         <canvas class="logo__effect" hidden></canvas>
-        <button
-          class="logo__switch"
-          type="button"
-          aria-label="Change the logo style"
-        ></button>
-      </div>
+      </button>
       <div class="shortcut">
         <div class="ground-glow" aria-hidden="true"></div>
         <h1 class="wordmark shortcut__wordmark">spawnshell</h1>

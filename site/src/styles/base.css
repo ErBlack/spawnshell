@@ -17,6 +17,7 @@
 
 html {
   background: var(--background);
+  font-size: max(1rem, min(1.1vw, 1.8vh));
 }
 
 body {
@@ -56,4 +57,16 @@ code {
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 0.25rem;
+}
+
+@keyframes sunset-fade {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes sunset-dim {
+  to {
+    opacity: 0.3;
+  }
 }

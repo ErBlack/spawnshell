@@ -1,5 +1,4 @@
 @import "./logo__text.css";
-@import "./logo__switch.css";
 
 .logo {
   grid-row: 1;
@@ -9,11 +8,24 @@
   display: block;
   height: min(52svh, 39rem, calc((100vw - 2 * var(--gutter)) * 644 / 427));
   aspect-ratio: 427 / 644;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
   opacity: 0;
   transition: opacity 400ms;
 
   @media (prefers-reduced-motion: reduce) {
     transition: none;
+  }
+
+  @supports ((animation-timeline: scroll()) and (animation-range: 0% 100%)) {
+    @media (prefers-reduced-motion: no-preference) {
+      animation: sunset-set linear both;
+      animation-timeline: scroll(root);
+      animation-range: 0 100svh;
+    }
   }
 
   &[data-ready] {
@@ -29,5 +41,11 @@
 
   & > [hidden] {
     display: none;
+  }
+}
+
+@keyframes sunset-set {
+  to {
+    translate: 0 calc((100svh - max(26svh, 14rem)) / 2);
   }
 }

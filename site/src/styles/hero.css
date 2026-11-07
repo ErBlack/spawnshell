@@ -7,4 +7,43 @@
   padding: 0 var(--gutter);
   isolation: isolate;
   overflow: hidden;
+
+  &::before {
+    content: "";
+    position: absolute;
+    z-index: -3;
+    inset: 0 0 max(26svh, 14rem);
+    background: linear-gradient(
+      0deg,
+      color-mix(in srgb, var(--accent-night) 28%, transparent),
+      color-mix(in srgb, var(--accent-night) 10%, transparent) 25%,
+      transparent 60%
+    );
+    pointer-events: none;
+
+    @supports ((animation-timeline: scroll()) and (animation-range: 0% 100%)) {
+      @media (prefers-reduced-motion: no-preference) {
+        animation: sunset-fade linear both;
+        animation-timeline: scroll(root);
+        animation-range: 0 100svh;
+      }
+    }
+  }
+
+  &::after {
+    content: "";
+    position: absolute;
+    z-index: 1;
+    inset: auto 0 0;
+    height: max(26svh, 14rem);
+    background:
+      linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--accent-night) 16%, transparent),
+        color-mix(in srgb, var(--accent-night) 6%, transparent) 60%,
+        transparent
+      ),
+      var(--background);
+    pointer-events: none;
+  }
 }

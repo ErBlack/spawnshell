@@ -10,4 +10,12 @@
   translate: -50% 0;
   clip-path: inset(0 -6.5rem -6.5rem);
   pointer-events: none;
+
+  @supports ((animation-timeline: scroll()) and (animation-range: 0% 100%)) {
+    @media (prefers-reduced-motion: no-preference) {
+      animation: sunset-fade linear both;
+      animation-timeline: scroll(root);
+      animation-range: 0 100svh;
+    }
+  }
 }

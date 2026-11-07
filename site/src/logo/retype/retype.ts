@@ -17,7 +17,6 @@ interface Scrambled {
   start: number;
   settle: number;
   fg: string;
-  shift?: number;
 }
 
 const timing = () => {
@@ -40,7 +39,7 @@ export function retype(
     for (let column = 0; column < COLUMNS; column++) {
       const filled = to[row][column] ?? from[row][column];
       if (!filled) continue;
-      plan[row][column] = { ...timing(), fg: filled.fg, shift: filled.shift };
+      plan[row][column] = { ...timing(), fg: filled.fg };
       if (Math.random() >= SCATTER_CHANCE) continue;
       const empty: [number, number][] = [];
       for (let y = row - NEIGHBOR_RADIUS; y <= row + NEIGHBOR_RADIUS; y++)
@@ -61,7 +60,7 @@ export function retype(
       for (let count = 1 + random(MAX_NEIGHBORS); count > 0; count--) {
         const [y, x] = empty.splice(random(empty.length), 1)[0] ?? [];
         if (y === undefined) break;
-        plan[y][x] ??= { ...timing(), fg: filled.fg, shift: filled.shift };
+        plan[y][x] ??= { ...timing(), fg: filled.fg };
       }
     }
   const total = plan.flat().filter(Boolean).length || 1;
@@ -82,7 +81,6 @@ export function retype(
             return {
               char: glyphAt(row, column, tick),
               fg: cell.fg,
-              shift: cell.shift,
             };
           }),
         ),

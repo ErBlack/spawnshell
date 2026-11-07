@@ -1,9 +1,6 @@
 import { GRID_SIZE } from "./grid-size.ts";
 
-export type Grid = (
-  | { char: string; fg: string; bg?: string; shift?: number }
-  | undefined
-)[][];
+export type Grid = ({ char: string; fg: string; bg?: string } | undefined)[][];
 
 interface GridData {
   name: string;
@@ -26,9 +23,7 @@ export function loadGrid(name: string): Promise<Grid> {
     const file = files[`./data/${name}.json`];
     if (!file) throw new Error(`no logo grid ${name}`);
     grid = file().then((data): Grid => {
-      const centered = (GRID_SIZE.columns - data.cols) / 2;
-      const offset = Math.floor(centered);
-      const shift = centered - offset || undefined;
+      const offset = Math.floor((GRID_SIZE.columns - data.cols) / 2);
       return data.text.map((line, row) => {
         const fg = data.fg[row].split(",");
         const bg = data.bg?.[row].split(",");
@@ -40,7 +35,6 @@ export function loadGrid(name: string): Promise<Grid> {
             char,
             fg: color(fg[column]) ?? "transparent",
             bg: background,
-            shift,
           };
         });
         return cells;

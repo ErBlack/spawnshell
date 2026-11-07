@@ -1,55 +1,68 @@
 import { GRID_SIZE } from "./grid/grid-size.ts";
 import type { Grid } from "./grid/load-grid.ts";
 
-const { columns: COLUMNS, rows: ROWS } = GRID_SIZE;
-
-interface Shown {
-  char: string;
-  fg: string;
-  bg: string;
-  shift: boolean;
-}
-
-const BLANK: Shown = { char: " ", fg: "", bg: "", shift: false };
+const { rows: ROWS } = GRID_SIZE;
 
 export class TextLogo {
-  private readonly spans: HTMLSpanElement[][] = [];
-  private readonly shown: Shown[][] = [];
+  private readonly text = new Text();
+  private readonly sheet = new CSSStyleSheet();
+  private readonly highlights = new Map<string, Highlight>();
 
   constructor(container: HTMLElement) {
-    for (let row = 0; row < ROWS; row++) {
-      const line = document.createElement("div");
-      const spans: HTMLSpanElement[] = [];
-      for (let column = 0; column < COLUMNS; column++) {
-        const span = document.createElement("span");
-        span.textContent = BLANK.char;
-        spans.push(span);
-      }
-      line.append(...spans);
-      container.append(line);
-      this.spans.push(spans);
-      this.shown.push(Array.from({ length: COLUMNS }, () => BLANK));
-    }
+    container.append(this.text);
+    document.adoptedStyleSheets.push(this.sheet);
   }
 
   render(grid: Grid) {
-    for (let row = 0; row < ROWS; row++)
-      for (let column = 0; column < COLUMNS; column++) {
-        const cell = grid[row]?.[column];
-        const next: Shown = {
-          char: cell?.char ?? " ",
-          fg: cell?.fg ?? "",
-          bg: cell?.bg ?? "",
-          shift: Boolean(cell?.shift),
-        };
-        const previous = this.shown[row][column];
-        const span = this.spans[row][column];
-        if (previous.char !== next.char) span.textContent = next.char;
-        if (previous.fg !== next.fg) span.style.color = next.fg;
-        if (previous.bg !== next.bg) span.style.backgroundColor = next.bg;
-        if (previous.shift !== next.shift)
-          span.toggleAttribute("data-shifted", next.shift);
-        this.shown[row][column] = next;
+    const lines: string[] = [];
+    const runs = new Map<string, [number, number][]>();
+    let start = 0;
+    for (let row = 0; row < ROWS; row++) {
+      let line = "";
+      let previous: [number, number] | undefined;
+      let previousKey = "";
+      const cells = grid[row] ?? [];
+      const length = cells.findLastIndex(Boolean) + 1;
+      for (let column = 0; column < length; column++) {
+        const cell = cells[column];
+        line += cell?.char ?? " ";
+        const key = cell ? `${cell.fg} ${cell.bg ?? "transparent"}` : "";
+        const offset = start + column;
+        if (key && key === previousKey && previous) {
+          previous[1] = offset + 1;
+          continue;
+        }
+        previousKey = key;
+        previous = undefined;
+        if (!key) continue;
+        previous = [offset, offset + 1];
+        const list = runs.get(key) ?? [];
+        list.push(previous);
+        runs.set(key, list);
       }
+      lines.push(line);
+      start += line.length + 1;
+    }
+    this.text.data = lines.join("\n");
+    for (const highlight of this.highlights.values()) highlight.clear();
+    for (const [key, spans] of runs) {
+      let highlight = this.highlights.get(key);
+      if (!highlight) {
+        highlight = new Highlight();
+        const name = `logo-${this.highlights.size}`;
+        const [fg, bg] = key.split(" ");
+        this.highlights.set(key, highlight);
+        CSS.highlights.set(name, highlight);
+        this.sheet.insertRule(
+          `::highlight(${name}) { color: ${fg}; background-color: ${bg}; }`,
+        );
+      }
+      for (const [start, end] of spans) {
+        const range = new Range();
+        range.setStart(this.text, start);
+        range.setEnd(this.text, end);
+        highlight.add(range);
+      }
+    }
   }
 }
