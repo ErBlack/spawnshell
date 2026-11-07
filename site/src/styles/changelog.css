@@ -1,0 +1,42 @@
+.changelog {
+  header {
+    padding: 2rem var(--gutter) 0;
+    text-align: center;
+  }
+
+  main {
+    width: 100%;
+    max-width: 40rem;
+    margin: 0 auto;
+    padding: 3rem var(--gutter) 6rem;
+  }
+
+  h1 {
+    margin: 0 0 2.5rem;
+    color: var(--text-bright);
+    font-size: 1.5rem;
+  }
+
+  h2 {
+    margin: 0;
+    padding: 1.5rem 0 0;
+    border-top: 1px solid var(--border);
+    color: var(--text-bright);
+    font-size: 1.25rem;
+  }
+
+  h3 {
+    margin: 1.25rem 0 0.5rem;
+    color: var(--text-bright);
+    font-size: 1rem;
+  }
+
+  ul {
+    margin: 0 0 1.5rem;
+    padding-left: 2ch;
+  }
+
+  p {
+    margin: 0 0 0.5rem;
+  }
+}

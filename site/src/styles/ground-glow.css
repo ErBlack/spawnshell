@@ -1,0 +1,13 @@
+@import "./ground-glow__blob.css";
+
+.ground-glow {
+  position: absolute;
+  z-index: -1;
+  top: -1.5rem;
+  left: 50%;
+  width: min(80vw, 40rem);
+  height: 9rem;
+  translate: -50% 0;
+  clip-path: inset(0 -6.5rem -6.5rem);
+  pointer-events: none;
+}

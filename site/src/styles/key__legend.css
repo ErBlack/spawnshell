@@ -1,0 +1,14 @@
+.key__legend {
+  position: relative;
+  color: var(--text-bright);
+  font-size: 1.25rem;
+
+  .key[data-key="Backquote"] & {
+    font-size: 1.5rem;
+  }
+
+  .key[data-pressed] &,
+  .keys:active & {
+    color: var(--accent);
+  }
+}

@@ -1,0 +1,10 @@
+@import "./download__button.css";
+@import "./download__meta.css";
+
+.download {
+  display: grid;
+  justify-items: center;
+  gap: 1rem;
+  padding: 4.5rem var(--gutter) 3rem;
+  text-align: center;
+}

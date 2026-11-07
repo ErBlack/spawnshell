@@ -10,8 +10,10 @@
     "build": "tauri build",
     "frontend": "vite",
     "frontend:build": "vite build",
-    "lint": "biome check src && cargo fmt --manifest-path src-tauri/Cargo.toml --all --check && cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets -- -D warnings",
-    "fix": "biome check --write src && cargo fmt --manifest-path src-tauri/Cargo.toml --all && cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets --fix --allow-dirty --allow-staged",
+    "site": "vite --config site/vite.config.ts",
+    "site:build": "vite build --config site/vite.config.ts",
+    "lint": "biome check src site && cargo fmt --manifest-path src-tauri/Cargo.toml --all --check && cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets -- -D warnings",
+    "fix": "biome check --write src site && cargo fmt --manifest-path src-tauri/Cargo.toml --all && cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets --fix --allow-dirty --allow-staged",
     "check:types": "tsc",
     "check:unused": "knip",
     "test": "cargo test --manifest-path src-tauri/Cargo.toml --workspace"
@@ -26,7 +28,9 @@
   "devDependencies": {
     "@biomejs/biome": "^2.5.4",
     "@tauri-apps/cli": "^2.11.4",
+    "@types/node": "^26.6.6",
     "knip": "^6.27.0",
+    "marked": "^18.1.3",
     "typescript": "^7.0.2",
     "vite": "^8.1.5"
   }

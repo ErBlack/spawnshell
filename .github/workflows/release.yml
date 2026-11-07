@@ -17,6 +17,7 @@ jobs:
       contents: write
     outputs:
       sha: ${{ steps.commit.outputs.sha }}
+      version: ${{ steps.commit.outputs.version }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -30,7 +31,9 @@ jobs:
           version: ${{ env.KNOPE_VERSION }}
       - run: knope prepare-release
       - id: commit
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "version=$(jq -r .version package.json)" >> "$GITHUB_OUTPUT"
 
   build:
     needs: prepare-release
@@ -54,10 +57,11 @@ jobs:
           workspaces: "src-tauri -> target"
       - run: npm ci
       - run: npm run build -- --target universal-apple-darwin --bundles dmg
+      - run: mv src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg Spawnshell_universal.dmg
       - uses: actions/upload-artifact@v7
         with:
           name: dmg
-          path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          path: Spawnshell_universal.dmg
           if-no-files-found: error
 
   release:
@@ -80,3 +84,14 @@ jobs:
       - run: knope release
         env:
           GITHUB_TOKEN: ${{ github.token }}
+
+  site:
+    needs: [prepare-release, release]
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/site.yml
+    with:
+      tag: v${{ needs.prepare-release.outputs.version }}
+      ref: ${{ needs.prepare-release.outputs.sha }}

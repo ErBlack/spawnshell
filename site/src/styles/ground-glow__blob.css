@@ -1,0 +1,21 @@
+.ground-glow__blob {
+  position: absolute;
+  top: -1.25rem;
+  width: 16%;
+  height: 5.5rem;
+  translate: -50% 0;
+  border-radius: 50%;
+  background: var(--accent);
+  filter: blur(1.5rem);
+  transition:
+    opacity 60ms linear,
+    transform 60ms linear;
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
+
+  &:nth-child(even) {
+    background: var(--accent-deep);
+  }
+}

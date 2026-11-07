@@ -1,0 +1,87 @@
+name: Site
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+      ref:
+        type: string
+        default: ""
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release to show on the site, e.g. v0.0.2
+        required: true
+        type: string
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  help:
+    runs-on: macos-26
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+      - run: gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.dmg' --dir release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+      - run: hdiutil attach -nobrowse -readonly -mountpoint /Volumes/spawnshell release/*.dmg
+      - run: node site/scripts/capture-help.ts /Volumes/spawnshell/Spawnshell.app/Contents/MacOS/spawnshell > help.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: help
+          path: help.json
+          if-no-files-found: error
+
+  build:
+    needs: help
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+      - uses: actions/download-artifact@v8
+        with:
+          name: help
+      - run: npm ci
+      - run: npm run site:build
+        env:
+          SPAWNSHELL_HELP: help.json
+      - uses: actions/configure-pages@v6
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

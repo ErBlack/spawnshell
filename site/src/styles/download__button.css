@@ -1,0 +1,14 @@
+.download__button {
+  display: inline-block;
+  padding: 1rem 1.75rem;
+  border-radius: 0.5rem;
+  background: var(--accent);
+  color: var(--background);
+  font-weight: 700;
+  text-decoration: none;
+
+  &:hover {
+    color: var(--background);
+    background: var(--accent-ice);
+  }
+}

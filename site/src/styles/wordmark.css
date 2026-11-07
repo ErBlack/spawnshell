@@ -1,0 +1,8 @@
+.wordmark {
+  margin: 0;
+  color: var(--text-bright);
+  font-size: 1rem;
+  font-weight: 400;
+  letter-spacing: 0.32em;
+  text-decoration: none;
+}

@@ -1,0 +1,23 @@
+.logo__text {
+  display: grid;
+  grid-template-rows: repeat(46, 1fr);
+  font:
+    700 calc(100cqh / 46 * 12 / 14) / calc(100cqh / 46) "Fira Code",
+    monospace;
+  white-space: pre;
+  -webkit-text-stroke: 0.04em currentColor;
+
+  > div {
+    display: grid;
+    grid-template-columns: repeat(61, 1fr);
+  }
+
+  span {
+    text-align: center;
+    overflow: hidden;
+  }
+
+  [data-shifted] {
+    translate: 50% 0;
+  }
+}

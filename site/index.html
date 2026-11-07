@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <meta
+      name="description"
+      content="A drop-down terminal for macOS: one shortcut away, over any app."
+    />
+    <title>Spawnshell</title>
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link
+      rel="preload"
+      href="./fonts/FiraCode-Regular.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link rel="stylesheet" href="./src/styles/index-page.css" />
+  </head>
+  <body>
+    <header class="hero">
+      <div class="logo">
+        <div class="logo__text" aria-hidden="true"></div>
+        <img
+          class="logo__vector"
+          src="./src/logo/vector.svg"
+          alt=""
+          hidden
+        />
+        <canvas class="logo__effect" hidden></canvas>
+        <button
+          class="logo__switch"
+          type="button"
+          aria-label="Change the logo style"
+        ></button>
+      </div>
+      <div class="shortcut">
+        <div class="ground-glow" aria-hidden="true"></div>
+        <h1 class="wordmark shortcut__wordmark">spawnshell</h1>
+        <button
+          class="keys"
+          type="button"
+          aria-expanded="false"
+          aria-describedby="shortcut-hint"
+        >
+          <kbd class="key" data-key="Control">
+            <span class="key__legend">⌃</span>
+            <span class="key__name">control</span>
+          </kbd>
+          <kbd class="key" data-key="Backquote">
+            <span class="key__legend">`</span>
+          </kbd>
+        </button>
+        <p id="shortcut-hint">Press shortcut</p>
+      </div>
+    </header>
+
+    <div class="about">
+      <main>
+        <section class="download">
+          <a class="download__button" href="%DOWNLOAD%">Download</a>
+          <p class="download__meta">
+            v%VERSION% · macOS %MACOS%+ ·
+            <a href="%RELEASES%">Releases</a>
+          </p>
+        </section>
+
+        <section class="features">
+          <ul>
+            <li>
+              <h2>One keystroke away</h2>
+              <p>Drops down over any app, even full-screen.</p>
+            </li>
+            <li>
+              <h2>Pinned tabs survive</h2>
+              <p>Restarts, updates and reboots.</p>
+            </li>
+            <li>
+              <h2>Shell notifications</h2>
+              <p>Click to jump to the tab.</p>
+            </li>
+            <li>
+              <h2>CLI</h2>
+              <p><code>spawnshell</code> CLI does everything the window does.</p>
+            </li>
+          </ul>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <a href="%RELEASES%">Releases</a>
+        <a href="./changelog.html">Changelog</a>
+        <a href="%REPO%">GitHub</a>
+      </footer>
+    </div>
+
+    <script type="module" src="./src/pages/index.ts"></script>
+  </body>
+</html>

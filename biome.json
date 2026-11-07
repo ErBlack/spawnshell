@@ -6,7 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["src/**", "!src/bindings.ts"]
+    "includes": ["src/**", "site/**", "!src/bindings.ts"]
   },
   "formatter": {
     "enabled": true,

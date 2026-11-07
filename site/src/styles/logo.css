@@ -1,0 +1,33 @@
+@import "./logo__text.css";
+@import "./logo__switch.css";
+
+.logo {
+  grid-row: 1;
+  align-self: center;
+  position: relative;
+  container-type: size;
+  display: block;
+  height: min(52svh, 39rem, calc((100vw - 2 * var(--gutter)) * 644 / 427));
+  aspect-ratio: 427 / 644;
+  opacity: 0;
+  transition: opacity 400ms;
+
+  @media (prefers-reduced-motion: reduce) {
+    transition: none;
+  }
+
+  &[data-ready] {
+    opacity: 1;
+  }
+
+  & > * {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  & > [hidden] {
+    display: none;
+  }
+}

@@ -1,0 +1,64 @@
+@import "./shortcut__wordmark.css";
+
+.shortcut {
+  grid-row: 2;
+  align-self: start;
+  margin-top: 1.5rem;
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 1.5rem;
+  text-align: center;
+
+  p {
+    margin: 0;
+    color: var(--text);
+  }
+
+  &::after {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    top: -1.5rem;
+    left: 50%;
+    width: min(92vw, 54rem);
+    height: 2px;
+    translate: -50% 0;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in srgb, var(--accent-deep) 50%, transparent) 25%,
+      color-mix(in srgb, var(--accent-ice) 70%, transparent) 50%,
+      color-mix(in srgb, var(--accent-deep) 50%, transparent) 75%,
+      transparent
+    );
+    filter: blur(0.5px);
+    pointer-events: none;
+  }
+
+  &::before {
+    content: "";
+    position: absolute;
+    z-index: -2;
+    top: -1.5rem;
+    left: 50%;
+    width: min(92vw, 54rem);
+    height: 9.5rem;
+    translate: -50% 0;
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--accent-deep) 34%, transparent) 0,
+      color-mix(in srgb, var(--accent-night) 24%, transparent) 30%,
+      color-mix(in srgb, var(--accent-night) 10%, transparent) 65%,
+      transparent 100%
+    );
+    mask-image: linear-gradient(
+      90deg,
+      transparent,
+      black 25%,
+      black 75%,
+      transparent
+    );
+    pointer-events: none;
+  }
+}
